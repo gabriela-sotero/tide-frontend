@@ -141,6 +141,41 @@ function App() {
     { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568' }
   ];
 
+  // State for column reordering
+  const [columnOrder, setColumnOrder] = useState<KanbanColumn[]>(['backlog', 'to-do', 'in-progress', 'done']);
+
+  // Column reordering functions
+  const handleColumnDragStart = (e: React.DragEvent, columnId: string) => {
+    e.dataTransfer.setData('text/plain', columnId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleColumnDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleColumnDrop = (e: React.DragEvent, targetColumnId: string) => {
+    e.preventDefault();
+    const draggedColumnId = e.dataTransfer.getData('text/plain') as KanbanColumn;
+    
+    if (draggedColumnId === targetColumnId) return;
+    
+    const draggedIndex = columnOrder.indexOf(draggedColumnId);
+    const targetIndex = columnOrder.indexOf(targetColumnId as KanbanColumn);
+    
+    if (draggedIndex === -1 || targetIndex === -1) return;
+    
+    const newColumnOrder = [...columnOrder];
+    const [draggedColumn] = newColumnOrder.splice(draggedIndex, 1);
+    newColumnOrder.splice(targetIndex, 0, draggedColumn);
+    
+    setColumnOrder(newColumnOrder);
+  };
+
+  // Helper function to get column by id
+  const getColumnById = (id: string) => columns.find(col => col.id === id);
+
   const [openTaskDialog, setOpenTaskDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -458,95 +493,60 @@ function App() {
 
   const renderMainHeader = () => (
     <Box sx={{ 
-      backgroundColor: '#f1f5f8', 
+      backgroundColor: '#ffffff', 
       borderBottom: '1px solid #8fa3b3',
-      px: 6,
-      py: 2
+      px: 3,
+      py: 2,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between'
     }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {/* Three Blue Dots Logo */}
-          <Box sx={{ 
-            width: 36, 
-            height: 24, 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            gap: 0.5
-          }}>
-            {/* First dot */}
-            <Box sx={{
-              width: '8px',
-              height: '8px',
-              backgroundColor: '#3A6BA3',
-              borderRadius: '50%',
-              boxShadow: '0 2px 4px rgba(58,107,163,0.3)'
-            }} />
-            
-            {/* Second dot */}
-            <Box sx={{
-              width: '8px',
-              height: '8px',
-              backgroundColor: '#4A7BB3',
-              borderRadius: '50%',
-              boxShadow: '0 2px 4px rgba(74,123,179,0.3)'
-            }} />
-            
-            {/* Third dot */}
-            <Box sx={{
-              width: '8px',
-              height: '8px',
-              backgroundColor: '#5A8BC3',
-              borderRadius: '50%',
-              boxShadow: '0 2px 4px rgba(90,139,195,0.3)'
-            }} />
-          </Box>
-          
-          <Typography variant="h4" sx={{ 
-            color: '#4a5568', 
-            fontWeight: 300,
-            fontFamily: '"Quicksand", "Segoe UI", "Helvetica Neue", sans-serif',
-            letterSpacing: '0.05em',
-            fontSize: '2.8rem',
-            lineHeight: 1,
-            textTransform: 'lowercase'
-          }}>
-            tide
-          </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#5a6c7d' }} />
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#6b7d8f' }} />
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#8fa3b3' }} />
         </Box>
-        
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant={currentPage === 'yearly' ? 'contained' : 'outlined'}
-            onClick={() => setCurrentPage('yearly')}
-            sx={{ 
-              backgroundColor: currentPage === 'yearly' ? '#5a6c7d' : 'transparent',
-              color: currentPage === 'yearly' ? '#ffffff' : '#4a5568',
-              borderColor: '#8fa3b3',
-              '&:hover': { 
-                backgroundColor: currentPage === 'yearly' ? '#4a5568' : 'rgba(90,108,125,0.1)'
-              }
-            }}
-          >
-            yearly
-          </Button>
-          <Button
-            variant={currentPage === 'kanban' ? 'contained' : 'outlined'}
-            onClick={() => setCurrentPage('kanban')}
-            sx={{ 
-              backgroundColor: currentPage === 'kanban' ? '#5a6c7d' : 'transparent',
-              color: currentPage === 'kanban' ? '#ffffff' : '#4a5568',
-              borderColor: '#8fa3b3',
-              '&:hover': { 
-                backgroundColor: currentPage === 'kanban' ? '#4a5568' : 'rgba(90,108,125,0.1)'
-              }
-            }}
-          >
-            kanban
-          </Button>
-        </Box>
+        <Typography variant="h4" sx={{ 
+          color: '#4a5568', 
+          fontFamily: 'Quicksand, sans-serif',
+          fontWeight: 300,
+          fontSize: '2rem'
+        }}>
+          tide
+        </Typography>
       </Box>
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <Button
+          variant={currentPage === 'yearly' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('yearly')}
+          sx={{ 
+            backgroundColor: currentPage === 'yearly' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'yearly' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'yearly' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          yearly
+        </Button>
+        <Button
+          variant={currentPage === 'kanban' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('kanban')}
+          sx={{ 
+            backgroundColor: currentPage === 'kanban' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'kanban' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'kanban' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          kanban
+        </Button>
       </Box>
+    </Box>
   );
 
   const renderKanbanHeader = () => (
@@ -627,15 +627,15 @@ function App() {
       onDragStart={(e) => {
         e.dataTransfer.setData('text/plain', task.id);
       }}
-      sx={{
+                sx={{
         backgroundColor: '#ffffff',
         p: 2,
-        borderRadius: 1,
+                  borderRadius: 1,
         border: '1px solid #8fa3b3',
         cursor: 'grab',
         transition: 'all 0.2s',
         mb: 1,
-        '&:hover': {
+                  '&:hover': {
           backgroundColor: '#f8fafb',
           borderColor: '#5a6c7d',
           boxShadow: '0 2px 8px rgba(90,108,125,0.15)'
@@ -651,8 +651,8 @@ function App() {
           <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 16 }} />
           <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
             {task.title}
-          </Typography>
-        </Box>
+              </Typography>
+          </Box>
         <Box sx={{ display: 'flex', gap: 0.5, opacity: 0, '&:hover': { opacity: 1 } }}>
           <IconButton
             size="small"
@@ -663,7 +663,7 @@ function App() {
             sx={{ color: '#6b7d8f', '&:hover': { color: '#5a6c7d' } }}
           >
             <EditIcon sx={{ fontSize: 16 }} />
-          </IconButton>
+        </IconButton>
           <IconButton
             size="small"
             onClick={(e) => {
@@ -673,8 +673,8 @@ function App() {
             sx={{ color: '#6b7d8f', '&:hover': { color: '#e53e3e' } }}
           >
             <DeleteIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Box>
+        </IconButton>
+              </Box>
       </Box>
       
       <Typography variant="caption" sx={{ color: '#6b7d8f', mb: 1.5, display: 'block' }}>
@@ -685,7 +685,7 @@ function App() {
         <Chip
           label={task.priority}
           size="small"
-          sx={{
+                    sx={{ 
             backgroundColor: `${getPriorityColor(task.priority)}20`,
             color: getPriorityColor(task.priority),
             border: `1px solid ${getPriorityColor(task.priority)}50`,
@@ -696,9 +696,9 @@ function App() {
         {task.dueDate && (
           <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
             {task.dueDate.toLocaleDateString()}
-          </Typography>
+                    </Typography>
         )}
-      </Box>
+                  </Box>
     </Box>
   );
 
@@ -737,221 +737,232 @@ function App() {
         renderEmptyState()
       ) : (
         <Box sx={{ display: 'flex', gap: 3, height: 'calc(100vh - 140px)' }}>
-          {columns.map(column => (
-            <Box key={column.id} sx={{ flex: 1, minWidth: 300 }}>
-              <Box sx={{ 
-                backgroundColor: '#ffffff',
-                border: '1px solid #8fa3b3',
-                borderRadius: 1,
-                borderLeft: `4px solid ${column.color}`,
-                mb: 2,
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}>
-                <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #8fa3b3' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500 }}>
-                      {column.name}
-                    </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleAddTask()}
-                      sx={{
-                        color: '#6b7d8f',
-                        '&:hover': { 
-                          color: column.color,
-                          backgroundColor: `${column.color}10`
-                        }
-                      }}
-                    >
-                      <AddIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                    <Box sx={{ 
-                      backgroundColor: '#f1f5f8',
-                      px: 1,
-                      py: 0.25,
-                      borderRadius: 0.5
-                    }}>
-                      <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
-                        {taskTypes.flatMap(type => 
-                          type.tasks.filter(task => task.status === column.id)
-                        ).length}
+          {columnOrder.map(columnId => {
+            const column = getColumnById(columnId);
+            if (!column) return null;
+
+            return (
+              <Box 
+                key={columnId} 
+                draggable
+                onDragStart={(e) => handleColumnDragStart(e, columnId)}
+                sx={{ 
+                  flex: 1, 
+                  minWidth: 300,
+                  cursor: 'grab',
+                  '&:active': {
+                    cursor: 'grabbing'
+                  }
+                }}
+                onDragOver={(e) => handleColumnDragOver(e)}
+                onDrop={(e) => handleColumnDrop(e, columnId)}
+              >
+                <Box sx={{ 
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #8fa3b3',
+                  borderRadius: 1,
+                  borderLeft: `4px solid ${column.color}`,
+                  mb: 2,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}>
+                  <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #8fa3b3' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                        {column.name}
                       </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleAddTask()}
+                        sx={{
+                          color: '#6b7d8f',
+                          '&:hover': { 
+                            color: column.color,
+                            backgroundColor: `${column.color}10`
+                          }
+                        }}
+                      >
+                        <AddIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      <Box sx={{ 
+                        backgroundColor: '#f1f5f8',
+                        px: 1,
+                        py: 0.25,
+                        borderRadius: 0.5
+                      }}>
+                        <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
+                          {taskTypes.flatMap(type => 
+                            type.tasks.filter(task => task.status === columnId)
+                          ).length}
+                        </Typography>
+                      </Box>
                     </Box>
                   </Box>
-                </Box>
 
-                <Box 
-                  data-column-id={column.id}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.currentTarget.style.backgroundColor = '#e2e8f0';
-                  }}
-                  onDragLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = column.id === 'backlog' ? 'transparent' : '#f8fafb';
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.currentTarget.style.backgroundColor = column.id === 'backlog' ? 'transparent' : '#f8fafb';
-                    
-                    const taskId = e.dataTransfer.getData('text/plain');
-                    if (taskId) {
-                      // Find the task to move
-                      let taskToMove: Task | null = null;
-                      let sourceType: string | null = null;
+                  <Box 
+                    data-column-id={columnId}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.style.backgroundColor = '#e2e8f0';
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = columnId === 'backlog' ? 'transparent' : '#f8fafb';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.style.backgroundColor = columnId === 'backlog' ? 'transparent' : '#f8fafb';
+                      
+                      const taskId = e.dataTransfer.getData('text/plain');
+                      if (taskId) {
+                        let taskToMove: Task | null = null;
+                        let sourceType: string | null = null;
 
-                      // Find task in any block type
-                      for (const type of taskTypes) {
-                        const foundTask = type.tasks.find(t => t.id === taskId);
-                        if (foundTask) {
-                          taskToMove = foundTask;
-                          sourceType = type.id;
-                          break;
+                        for (const type of taskTypes) {
+                          const foundTask = type.tasks.find(t => t.id === taskId);
+                          if (foundTask) {
+                            taskToMove = foundTask;
+                            sourceType = type.id;
+                            break;
+                          }
+                        }
+
+                        if (taskToMove && sourceType && taskToMove.status !== columnId) {
+                          setTaskTypes(prev => prev.map(type => 
+                            type.id === sourceType 
+                              ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
+                              : type
+                          ));
+
+                          const updatedTask = { ...taskToMove, status: columnId as 'backlog' | 'to-do' | 'in-progress' | 'done' };
+                          setTaskTypes(prev => prev.map(type => 
+                            type.id === sourceType 
+                              ? { ...type, tasks: [...type.tasks, updatedTask] }
+                              : type
+                          ));
                         }
                       }
-
-                      if (taskToMove && sourceType && taskToMove.status !== column.id) {
-                        // Remove from source
-                        setTaskTypes(prev => prev.map(type => 
-                          type.id === sourceType 
-                            ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
-                            : type
-                        ));
-
-                        // Add to target with new status
-                        const updatedTask = { ...taskToMove, status: column.id as 'backlog' | 'to-do' | 'in-progress' | 'done' };
-                        setTaskTypes(prev => prev.map(type => 
-                          type.id === sourceType 
-                            ? { ...type, tasks: [...type.tasks, updatedTask] }
-                            : type
-                        ));
-                      }
-                    }
-                  }}
-                  sx={{
-                    p: 2,
-                    height: 'calc(100vh - 200px)',
-                    overflow: 'auto',
-                    minHeight: 200,
-                    backgroundColor: column.id === 'backlog' ? 'transparent' : '#f8fafb',
-                    borderRadius: column.id === 'backlog' ? 0 : 1,
-                    transition: 'background-color 0.2s'
-                  }}
-                >
-                  {column.id === 'backlog' ? (
-                    // Backlog column with expandable blocks
-                    <>
-                      {/* Expand/Collapse All button for backlog */}
-                      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'center' }}>
-                        <Button
-                          variant="outlined"
-                          onClick={toggleBacklogExpansion}
-                          startIcon={backlogExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                          sx={{ 
-                            color: '#4a5568',
-                            borderColor: '#8fa3b3',
-                            '&:hover': { 
-                              backgroundColor: 'rgba(90,108,125,0.1)',
-                              borderColor: '#5a6c7d'
-                            }
-                          }}
-                        >
-                          {backlogExpanded ? 'collapse all' : 'expand all'}
-                        </Button>
-                      </Box>
-                      
-                      {taskTypes.map(type => (
-                        <Box key={type.id} sx={{ mb: 2 }}>
-                          <Box 
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              cursor: 'pointer',
-                              mb: 1,
-                              p: 1,
-                              borderRadius: 1,
-                              backgroundColor: type.expanded ? 'rgba(168,181,209,0.1)' : 'transparent',
-                              '&:hover': { backgroundColor: 'rgba(168,181,209,0.05)' }
-                            }}
-                            onClick={() => toggleTypeExpansion(type.id)}
-                          >
-                            <Box 
-                              sx={{ 
-                                width: 12, 
-                                height: 12, 
-                                borderRadius: '50%', 
-                                backgroundColor: type.color, 
-                                mr: 2 
-                              }} 
-                            />
-                            <Typography variant="subtitle2" sx={{ flex: 1, color: '#1f2937', fontWeight: 500 }}>
-                              {type.name}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: '#6b7280', mr: 1 }}>
-                              {type.tasks.filter(t => t.status === 'backlog').length}
-                            </Typography>
-                            {type.expanded ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
-                          </Box>
-                          
-                          <Collapse in={type.expanded}>
-                            <Box sx={{ pl: 2, space: 1 }}>
-                              {filterTasks(type.tasks.filter(task => task.status === 'backlog'))
-                                .map(task => renderTaskCard(task))
+                    }}
+                    sx={{
+                      p: 2,
+                      height: 'calc(100vh - 200px)',
+                      overflow: 'auto',
+                      minHeight: 200,
+                      backgroundColor: columnId === 'backlog' ? 'transparent' : '#f8fafb',
+                      borderRadius: columnId === 'backlog' ? 0 : 1,
+                      transition: 'background-color 0.2s'
+                    }}
+                  >
+                    {columnId === 'backlog' ? (
+                      <>
+                        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'center' }}>
+                          <Button
+                            variant="outlined"
+                            onClick={toggleBacklogExpansion}
+                            startIcon={backlogExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            sx={{ 
+                              color: '#4a5568',
+                              borderColor: '#8fa3b3',
+                              '&:hover': { 
+                                backgroundColor: 'rgba(90,108,125,0.1)',
+                                borderColor: '#5a6c7d'
                               }
-                              {type.tasks.filter(t => t.status === 'backlog').length === 0 && (
-                                <Typography variant="caption" sx={{ color: '#6b7280', fontStyle: 'italic', pl: 2 }}>
-                                  No tasks
-                                </Typography>
-                              )}
-                              
-                              {/* Add Task Button for each block */}
-                              <Button
-                                fullWidth
-                                variant="outlined"
-                                startIcon={<AddIcon />}
-                                onClick={() => handleAddTask(type.id)}
-                                sx={{ 
-                                  mt: 1,
-                                  p: 1.5,
-                                  border: '2px dashed #a8b5d1',
-                                  color: '#718096',
-                                  fontSize: '0.75rem',
-                                  '&:hover': {
-                                    borderColor: type.color,
-                                    color: type.color,
-                                    backgroundColor: `${type.color}10`
-                                  }
-                                }}
-                              >
-                                Add Task to {type.name}
-                              </Button>
-                            </Box>
-                          </Collapse>
+                            }}
+                          >
+                            {backlogExpanded ? 'collapse all' : 'expand all'}
+                          </Button>
                         </Box>
-                      ))}
-                    </>
-                  ) : (
-                    // Other columns show tasks normally
-                    filterTasks(taskTypes.flatMap(type => 
-                      type.tasks.filter(task => task.status === column.id)
-                    )).map(task => renderTaskCard(task))
-                  )}
-                  
-                  {column.id !== 'backlog' && filterTasks(taskTypes.flatMap(type => 
-                    type.tasks.filter(task => task.status === column.id)
-                  )).length === 0 && (
-                    <Typography variant="body2" sx={{ 
-                      color: '#6b7280', 
-                      textAlign: 'center',
-                      fontStyle: 'italic',
-                      mt: 2
-                    }}>
-                      No tasks
-                    </Typography>
-                  )}
+                        
+                        {taskTypes.map(type => (
+                          <Box key={type.id} sx={{ mb: 2 }}>
+                            <Box 
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                mb: 1,
+                                p: 1,
+                                borderRadius: 1,
+                                backgroundColor: type.expanded ? 'rgba(168,181,209,0.1)' : 'transparent',
+                                '&:hover': { backgroundColor: 'rgba(168,181,209,0.05)' }
+                              }}
+                              onClick={() => toggleTypeExpansion(type.id)}
+                            >
+                              <Box 
+                                sx={{ 
+                                  width: 12, 
+                                  height: 12, 
+                                  borderRadius: '50%', 
+                                  backgroundColor: type.color, 
+                                  mr: 2 
+                                }} 
+                              />
+                              <Typography variant="subtitle2" sx={{ flex: 1, color: '#1f2937', fontWeight: 500 }}>
+                                {type.name}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#6b7280', mr: 1 }}>
+                                {type.tasks.filter(t => t.status === 'backlog').length}
+                              </Typography>
+                              {type.expanded ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
+                            </Box>
+                            
+                            <Collapse in={type.expanded}>
+                              <Box sx={{ pl: 2, space: 1 }}>
+                                {filterTasks(type.tasks.filter(task => task.status === 'backlog'))
+                                  .map(task => renderTaskCard(task))
+                                }
+                                {type.tasks.filter(t => t.status === 'backlog').length === 0 && (
+                                  <Typography variant="caption" sx={{ color: '#6b7280', fontStyle: 'italic', pl: 2 }}>
+                                    No tasks
+                                  </Typography>
+                                )}
+                                
+                                <Button
+                                  fullWidth
+                                  variant="outlined"
+                                  startIcon={<AddIcon />}
+                                  onClick={() => handleAddTask(type.id)}
+                                  sx={{ 
+                                    mt: 1,
+                                    p: 1.5,
+                                    border: '2px dashed #a8b5d1',
+                                    color: '#718096',
+                                    fontSize: '0.75rem',
+                                    '&:hover': {
+                                      borderColor: type.color,
+                                      color: type.color,
+                                      backgroundColor: `${type.color}10`
+                                    }
+                                  }}
+                                >
+                                  Add Task to {type.name}
+                                </Button>
+                              </Box>
+                            </Collapse>
+                          </Box>
+                        ))}
+                      </>
+                    ) : (
+                      filterTasks(taskTypes.flatMap(type => 
+                        type.tasks.filter(task => task.status === columnId)
+                      )).map(task => renderTaskCard(task))
+                    )}
+                    
+                    {columnId !== 'backlog' && filterTasks(taskTypes.flatMap(type => 
+                      type.tasks.filter(task => task.status === columnId)
+                    )).length === 0 && (
+                      <Typography variant="body2" sx={{ 
+                        color: '#6b7280', 
+                        textAlign: 'center',
+                        fontStyle: 'italic',
+                        mt: 2
+                      }}>
+                        No tasks
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
               </Box>
-            </Box>
-          ))}
+            );
+          })}
         </Box>
       )}
     </Box>
@@ -987,18 +998,18 @@ function App() {
           <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
             search results ({searchResults.length})
           </Typography>
-              </Box>
-              
+        </Box>
+        
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 1 }}>
           {searchResults.map((task) => (
-                  <Box 
+            <Box 
               key={`${task.id}-${task.blockType}`}
-                    sx={{ 
+              sx={{ 
                 p: 2,
                 backgroundColor: '#f8fafb',
                 borderRadius: 1,
                 border: '1px solid #e2e8f0',
-                      cursor: 'pointer',
+                cursor: 'pointer',
                 transition: 'all 0.2s',
                 '&:hover': {
                   backgroundColor: '#f1f5f8',
@@ -1015,7 +1026,7 @@ function App() {
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                 <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
                   {task.title}
-                    </Typography>
+                </Typography>
                 <Chip
                   label={task.blockType}
                   size="small"
@@ -1026,8 +1037,8 @@ function App() {
                     height: 20
                   }}
                 />
-                  </Box>
-                  
+              </Box>
+              
               <Typography variant="caption" sx={{ color: '#6b7d8f', mb: 1.5, display: 'block' }}>
                 {task.description}
               </Typography>
@@ -1037,7 +1048,7 @@ function App() {
                   <Chip
                     label={task.status}
                     size="small"
-                            sx={{ 
+                    sx={{ 
                       backgroundColor: '#f1f5f8',
                       color: '#4a5568',
                       fontSize: '0.75rem',
@@ -1055,7 +1066,7 @@ function App() {
                       height: 20
                     }}
                   />
-                          </Box>
+                </Box>
                 
                 {task.dueDate && (
                   <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
@@ -1063,8 +1074,8 @@ function App() {
                   </Typography>
                 )}
               </Box>
-                </Box>
-              ))}
+            </Box>
+          ))}
         </Box>
       </Box>
     );
