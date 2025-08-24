@@ -1,0 +1,134 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #FAFBFC;
+}
+
+.App {
+  text-align: left;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Task completion animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.task-item {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Energy circles animation */
+.energy-circle {
+  transition: all 0.2s ease-in-out;
+}
+
+.energy-circle:hover {
+  transform: scale(1.1);
+}
+
+/* Block expansion animation */
+.block-content {
+  transition: all 0.3s ease-in-out;
+  overflow: hidden;
+}
+
+/* Gantt chart bars */
+.gantt-bar {
+  transition: all 0.3s ease-in-out;
+  cursor: pointer;
+}
+
+.gantt-bar:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+/* Notes section */
+.notes-section {
+  background: linear-gradient(135deg, #F8F9FA 0%, #E8F4FD 100%);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* Task blocks */
+.task-block {
+  border-left: 4px solid;
+  padding-left: 12px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease-in-out;
+}
+
+.task-block:hover {
+  background-color: rgba(0,0,0,0.02);
+}
+
+/* Completion status */
+.completed-task {
+  text-decoration: line-through;
+  opacity: 0.7;
+  transition: all 0.3s ease-in-out;
+}
+
+/* Header styling */
+.app-header {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  border-bottom: 1px solid #e0e0e0;
+}
+
+/* Navigation buttons */
+.nav-button {
+  transition: all 0.2s ease-in-out;
+  border-radius: 8px;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.nav-button:hover {
+  transform: translateY(-1px);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .daily-view {
+    flex-direction: column;
+  }
+  
+  .task-panel {
+    margin-bottom: 16px;
+  }
+  
+  .weekly-view .day-column {
+    min-width: 120px;
+  }
+}
