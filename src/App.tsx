@@ -328,10 +328,11 @@ function App() {
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
   const [backlogExpanded, setBacklogExpanded] = useState(false);
   const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban'>('kanban');
-  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, blockId: string, blockName: string}>({
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, blockId: string, blockName: string, columnId?: string}>({
     open: false,
     blockId: '',
-    blockName: ''
+    blockName: '',
+    columnId: ''
   });
   const [openColumnsDialog, setOpenColumnsDialog] = useState(false);
   const [openTasksDialog, setOpenTasksDialog] = useState(false);
@@ -613,33 +614,42 @@ function App() {
   };
 
   const handleDeleteBlock = (blockId: string) => {
-    const block = taskTypes.find(b => b.id === blockId);
-    if (block && block.tasks.length > 0) {
-      alert('cannot delete block with existing tasks');
-      return;
-    }
-    
+    // Delete the entire block and all its tasks from all columns
     setTaskTypes(prev => prev.filter(b => b.id !== blockId));
   };
 
-  const handleOpenDeleteConfirm = (blockId: string, blockName: string) => {
+  const handleOpenDeleteConfirm = (blockId: string, blockName: string, columnId?: string) => {
     setDeleteConfirmDialog({
       open: true,
       blockId,
-      blockName
+      blockName,
+      columnId
     });
   };
 
   const handleConfirmDelete = () => {
-    const { blockId } = deleteConfirmDialog;
+    const { blockId, columnId } = deleteConfirmDialog;
     
-    // Delete the block regardless of whether it has tasks
-    setTaskTypes(prev => prev.filter(type => type.id !== blockId));
-    setDeleteConfirmDialog({ open: false, blockId: '', blockName: '' });
+    if (columnId) {
+      // Delete only the tasks of this block in this specific column
+      setTaskTypes(prev => prev.map(type => 
+        type.id === blockId 
+          ? { 
+              ...type, 
+              tasks: type.tasks.filter(task => task.status !== columnId)
+            }
+          : type
+      ));
+    } else {
+      // Delete the entire block (fallback for old behavior)
+      setTaskTypes(prev => prev.filter(type => type.id !== blockId));
+    }
+    
+    setDeleteConfirmDialog({ open: false, blockId: '', blockName: '', columnId: '' });
   };
 
   const handleCancelDelete = () => {
-    setDeleteConfirmDialog({ open: false, blockId: '', blockName: '' });
+    setDeleteConfirmDialog({ open: false, blockId: '', blockName: '', columnId: '' });
   };
 
   const handleEditColumn = (columnId: string, currentName: string) => {
@@ -1228,7 +1238,7 @@ function App() {
             const column = getColumnById(columnId);
             if (!column) return null;
 
-            return (
+    return (
               <Box 
                 key={columnId} 
                             sx={{ 
@@ -1315,7 +1325,7 @@ function App() {
                             type.tasks.filter(task => task.status === columnId)
                           ).length}
                         </Typography>
-                  </Box>
+              </Box>
                     </Box>
               </Box>
 
@@ -1354,11 +1364,11 @@ function App() {
                           
                           return (
                         <Box key={type.id} sx={{ mb: 2 }}>
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                              cursor: 'pointer',
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      cursor: 'pointer',
                               mb: 1,
                               p: 1,
                               borderRadius: 1,
@@ -1378,7 +1388,7 @@ function App() {
                             />
                             <Typography variant="subtitle2" sx={{ flex: 1, color: '#1f2937', fontWeight: 500 }}>
                               {type.name}
-                            </Typography>
+                    </Typography>
                             <Typography variant="caption" sx={{ color: '#6b7280', mr: 1 }}>
                               {tasksInColumn.length}
                             </Typography>
@@ -1408,7 +1418,7 @@ function App() {
                               size="small"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleOpenDeleteConfirm(type.id, type.name);
+                                handleOpenDeleteConfirm(type.id, type.name, columnId);
                               }}
                               sx={{
                                 color: '#e53e3e',
@@ -1424,13 +1434,13 @@ function App() {
                             </IconButton>
                             
                             {type.expandedByColumn?.[columnId] ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
-                          </Box>
-                          
+                  </Box>
+                  
                           <Collapse in={type.expandedByColumn?.[columnId] || false}>
                             <Box sx={{ pl: 2, space: 1 }}>
                               {/* Top drop zone for high priority */}
                               <Box
-                                sx={{
+                            sx={{ 
                                   height: 20,
                                   backgroundColor: 'transparent',
                                   border: '2px dashed transparent',
@@ -1485,13 +1495,13 @@ function App() {
                                       }}
                                       onDrop={(e) => handleTaskDrop(e, columnId, type.id, 'middle')}
                                     />
-                                  )}
-                                </Box>
-                              ))}
+                  )}
+                </Box>
+              ))}
                               
                               {/* Bottom drop zone for low priority */}
                               <Box
-                                  sx={{ 
+                    sx={{
                                   height: 20,
                                   backgroundColor: 'transparent',
                                   border: '2px dashed transparent',
@@ -1549,9 +1559,9 @@ function App() {
                               >
                                 add new task
                               </Button>
-                            </Box>
+                  </Box>
                             
-                            </Box>
+              </Box>
                           );
                         })}
                     
@@ -1599,8 +1609,8 @@ function App() {
     });
     
     if (searchResults.length === 0) return null;
-    
-    return (
+
+                    return (
       <Box sx={{
         position: 'absolute',
         top: '100%',
@@ -1624,7 +1634,7 @@ function App() {
           {sortedSearchResults.map((task) => (
                   <Box 
               key={`${task.id}-${task.blockType}`}
-                    sx={{ 
+                        sx={{
                 p: 2,
                 backgroundColor: '#f8fafb',
                 borderRadius: 1,
@@ -1650,7 +1660,7 @@ function App() {
                 <Chip
                   label={task.blockType}
                   size="small"
-                  sx={{
+                              sx={{
                     backgroundColor: '#e2e8f0',
                     color: '#4a5568',
                     fontSize: '0.75rem',
@@ -1668,7 +1678,7 @@ function App() {
                   <Chip
                     label={task.status}
                     size="small"
-                            sx={{ 
+                                  sx={{ 
                       backgroundColor: '#f1f5f8',
                       color: '#4a5568',
                       fontSize: '0.75rem',
@@ -1678,7 +1688,7 @@ function App() {
                   <Chip
                     label={task.priority}
                     size="small"
-                    sx={{
+                                  sx={{ 
                       backgroundColor: `${getPriorityColor(task.priority)}20`,
                       color: getPriorityColor(task.priority),
                       border: `1px solid ${getPriorityColor(task.priority)}50`,
@@ -1692,11 +1702,11 @@ function App() {
                   <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
                     {task.dueDate.toLocaleDateString()}
                   </Typography>
-                )}
-              </Box>
-                </Box>
+                              )}
+                            </Box>
+                      </Box>
               ))}
-        </Box>
+              </Box>
       </Box>
     );
   };
@@ -1814,7 +1824,7 @@ function App() {
                 <MenuItem value="done">done</MenuItem>
               </Select>
             </FormControl>
-                </Box>
+              </Box>
           
           <Box sx={{ display: 'flex', gap: 2 }}>
             <FormControl fullWidth>
@@ -1940,7 +1950,7 @@ function App() {
                       }
                     }
                   }}
-                  sx={{ 
+                    sx={{ 
                     border: '1px solid #e2e8f0',
                     borderRadius: 1,
                     backgroundColor: '#ffffff',
@@ -1957,8 +1967,8 @@ function App() {
                 >
                   {/* Column Header */}
                   <Box sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                      display: 'flex', 
+                      alignItems: 'center', 
                     gap: 2, 
                     p: 2
                   }}>
@@ -2012,8 +2022,8 @@ function App() {
               );
             })}
           </Box>
-        </Box>
-        
+                  </Box>
+                  
         {/* Add New Column Section */}
         <Box sx={{ mb: 3, p: 2, border: '1px dashed #cbd5e0', borderRadius: 1, backgroundColor: '#f8fafb' }}>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -2029,7 +2039,7 @@ function App() {
               onClick={handleAddNewColumn}
               disabled={!newColumnName.trim()}
               size="small"
-              sx={{
+                            sx={{ 
                 borderColor: '#8fa3b3',
                 color: '#4a5568',
                 '&:hover': {
@@ -2044,8 +2054,8 @@ function App() {
             >
               add
             </Button>
-          </Box>
-        </Box>
+                          </Box>
+                </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button
@@ -2068,13 +2078,13 @@ function App() {
       <Box sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
           manage blocks
-        </Typography>
+              </Typography>
         
         {/* Existing Blocks */}
               <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ color: '#4a5568', mb: 2, fontWeight: 500 }}>
             existing blocks
-          </Typography>
+                  </Typography>
           
           {taskTypes.length === 0 ? (
             <Typography variant="body2" sx={{ color: '#6b7d8f', fontStyle: 'italic' }}>
@@ -2085,13 +2095,13 @@ function App() {
               {taskTypes.map((block) => (
                 <Box
                   key={block.id}
-                    sx={{ 
+                    sx={{
                       display: 'flex', 
                     justifyContent: 'space-between',
                       alignItems: 'center', 
                     p: 2,
                     backgroundColor: '#f8fafb',
-                    borderRadius: 1,
+                      borderRadius: 1,
                     border: '1px solid #e2e8f0'
                   }}
                 >
@@ -2139,8 +2149,8 @@ function App() {
                         backgroundColor: '#e2e8f0',
                         color: '#4a5568',
                         fontSize: '0.75rem'
-                      }}
-                    />
+                    }}
+                  />
                 </Box>
                   
                   <Box sx={{ display: 'flex', gap: 1 }}>
@@ -2196,7 +2206,7 @@ function App() {
                 </Box>
                 </Box>
               ))}
-              </Box>
+      </Box>
                   )}
       </Box>
         
@@ -2279,13 +2289,13 @@ function App() {
             return (
               <Box key={columnId} sx={{ border: '1px solid #e2e8f0', borderRadius: 1, backgroundColor: '#ffffff' }}>
                 {/* Column Header */}
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
                     gap: 2, 
                     p: 2,
-                    cursor: 'pointer',
+                      cursor: 'pointer',
                     backgroundColor: '#f8fafb',
                     borderBottom: '1px solid #e2e8f0',
                     '&:hover': { backgroundColor: '#f1f5f8' }
@@ -2302,13 +2312,13 @@ function App() {
                   />
                   <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
                     {column.name}
-                  </Typography>
+                    </Typography>
                   <Typography variant="caption" sx={{ color: '#8fa3b3' }}>
                     {columnTasks.length} tasks
                   </Typography>
                   {expandedColumns[columnId] ? <ExpandLessIcon sx={{ color: '#8fa3b3' }} /> : <ExpandMoreIcon sx={{ color: '#8fa3b3' }} />}
-                </Box>
-                
+                  </Box>
+                  
                 {/* Tasks List */}
                 <Collapse in={expandedColumns[columnId]}>
                   <Box sx={{ p: 2 }}>
@@ -2339,7 +2349,7 @@ function App() {
                                 handleTaskReorder(draggedTaskId, columnId, index);
                               }
                             }}
-                            sx={{
+                            sx={{ 
                               display: 'flex',
                               alignItems: 'center',
                               gap: 2,
@@ -2485,8 +2495,8 @@ function App() {
                       color: '#6b7d8f'
                     }}>
                       {day}
-      </Box>
-                  ))}
+                </Box>
+              ))}
                   
                   {/* Empty cells for days before month starts */}
                   {Array.from({ length: firstDayOfMonth }, (_, i) => (
@@ -2549,7 +2559,7 @@ function App() {
     );
   };
 
-  return (
+    return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f8fafb' }}>
       {renderMainHeader()}
       {currentPage === 'yearly' ? (
@@ -2576,7 +2586,7 @@ function App() {
         <Box sx={{ p: 3 }}>
           <Typography variant="h6" sx={{ color: '#4a5568', mb: 2, fontWeight: 600 }}>
             move task to different project
-          </Typography>
+        </Typography>
           
           <Typography variant="body1" sx={{ color: '#6b7d8f', mb: 3 }}>
             select the project where you want to move this task:
@@ -2623,7 +2633,7 @@ function App() {
                 )}
               </Button>
             ))}
-          </Box>
+      </Box>
           
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
             <Button
@@ -2653,15 +2663,21 @@ function App() {
       >
         <Box sx={{ p: 3 }}>
           <Typography variant="h6" sx={{ color: '#4a5568', mb: 2, fontWeight: 600 }}>
-            delete block
+            {deleteConfirmDialog.columnId ? 'delete block from column' : 'delete entire block'}
           </Typography>
           
           <Typography variant="body1" sx={{ color: '#6b7d8f', mb: 3 }}>
-            are you sure you want to delete the block "{deleteConfirmDialog.blockName}"?
+            {deleteConfirmDialog.columnId 
+              ? `are you sure you want to delete the block "${deleteConfirmDialog.blockName}" from the "${deleteConfirmDialog.columnId}" column?`
+              : `are you sure you want to delete the entire block "${deleteConfirmDialog.blockName}"?`
+            }
           </Typography>
           
           <Typography variant="body2" sx={{ color: '#e53e3e', mb: 3, fontStyle: 'italic' }}>
-            ⚠️ this action cannot be undone. all tasks in this block will be permanently deleted.
+            {deleteConfirmDialog.columnId
+              ? `⚠️ this will only delete tasks from the "${deleteConfirmDialog.columnId}" column. the block and its tasks in other columns will remain.`
+              : `⚠️ this action cannot be undone. all tasks in this block will be permanently deleted.`
+            }
           </Typography>
           
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
