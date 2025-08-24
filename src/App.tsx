@@ -982,108 +982,99 @@ function App() {
                       transition: 'background-color 0.2s'
                     }}
                   >
-                    {columnId === 'backlog' ? (
-                      <>
-                        {taskTypes.map(type => (
-                          <Box key={type.id} sx={{ mb: 2 }}>
-                                                                                    <Box 
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                cursor: 'pointer',
-                                mb: 1,
-                                p: 1,
-                                borderRadius: 1,
-                                backgroundColor: type.expanded ? 'rgba(168,181,209,0.1)' : 'transparent',
-                                '&:hover': { backgroundColor: 'rgba(168,181,209,0.05)' }
-                              }}
-                              onClick={() => toggleTypeExpansion(type.id)}
-                            >
-                              <Box 
-                                sx={{ 
-                                  width: 12, 
-                                  height: 12, 
-                                  borderRadius: '50%', 
-                                  backgroundColor: type.color, 
-                                  mr: 2 
-                                }} 
-                              />
-                              <Typography variant="subtitle2" sx={{ flex: 1, color: '#1f2937', fontWeight: 500 }}>
-                                {type.name}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#6b7280', mr: 1 }}>
-                                {type.tasks.filter(t => t.status === 'backlog').length}
-                              </Typography>
-                              
-                              {/* Add Task button */}
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddTask(type.id);
-                                }}
-                                sx={{
-                                  color: '#52c396',
-                                  opacity: 0.8,
-                                  mr: 0.5,
-                                  '&:hover': { 
-                                    opacity: 1,
-                                    backgroundColor: 'rgba(82,195,150,0.1)' 
-                                  }
-                                }}
-                              >
-                                <AddIcon sx={{ fontSize: 14 }} />
-                              </IconButton>
-                              
-                              {/* Delete button */}
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenDeleteConfirm(type.id, type.name);
-                                }}
-                                sx={{
-                                  color: '#e53e3e',
-                                  opacity: 0.7,
-                                  mr: 0.5,
-                                  '&:hover': { 
-                                    opacity: 1,
-                                    backgroundColor: 'rgba(229,62,62,0.1)' 
-                                  }
-                                }}
-                              >
-                                <DeleteIcon sx={{ fontSize: 14 }} />
-                              </IconButton>
-                              
-                              {type.expanded ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
-                            </Box>
+                    {taskTypes.map(type => {
+                      const tasksInColumn = type.tasks.filter(task => task.status === columnId);
+                      if (tasksInColumn.length === 0) return null;
+                      
+                      return (
+                        <Box key={type.id} sx={{ mb: 2 }}>
+                          <Box 
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              cursor: 'pointer',
+                              mb: 1,
+                              p: 1,
+                              borderRadius: 1,
+                              backgroundColor: type.expanded ? 'rgba(168,181,209,0.1)' : 'transparent',
+                              '&:hover': { backgroundColor: 'rgba(168,181,209,0.05)' }
+                            }}
+                            onClick={() => toggleTypeExpansion(type.id)}
+                          >
+                            <Box 
+                              sx={{ 
+                                width: 12, 
+                                height: 12, 
+                                borderRadius: '50%', 
+                                backgroundColor: type.color, 
+                                mr: 2 
+                              }} 
+                            />
+                            <Typography variant="subtitle2" sx={{ flex: 1, color: '#1f2937', fontWeight: 500 }}>
+                              {type.name}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#6b7280', mr: 1 }}>
+                              {tasksInColumn.length}
+                            </Typography>
                             
-                            <Collapse in={type.expanded}>
-                              <Box sx={{ pl: 2, space: 1 }}>
-                                {filterTasks(type.tasks.filter(task => task.status === 'backlog'))
-                                  .map(task => renderTaskCard(task))
+                            {/* Add Task button */}
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddTask(type.id);
+                              }}
+                              sx={{ 
+                                color: '#52c396',
+                                opacity: 0.8,
+                                mr: 0.5,
+                                '&:hover': { 
+                                  opacity: 1,
+                                  backgroundColor: 'rgba(82,195,150,0.1)' 
                                 }
-                                {type.tasks.filter(t => t.status === 'backlog').length === 0 && (
-                                  <Typography variant="caption" sx={{ color: '#6b7280', fontStyle: 'italic', pl: 2 }}>
-                                    No tasks
-                                  </Typography>
-                                )}
-                                
-
-                              </Box>
-                            </Collapse>
+                              }}
+                            >
+                              <AddIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            
+                            {/* Delete button */}
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenDeleteConfirm(type.id, type.name);
+                              }}
+                              sx={{
+                                color: '#e53e3e',
+                                opacity: 0.7,
+                                mr: 0.5,
+                                '&:hover': { 
+                                  opacity: 1,
+                                  backgroundColor: 'rgba(229,62,62,0.1)' 
+                                }
+                              }}
+                            >
+                              <DeleteIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            
+                            {type.expanded ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
                           </Box>
-                        ))}
-                      </>
-                    ) : (
-                      filterTasks(taskTypes.flatMap(type => 
-                        type.tasks.filter(task => task.status === columnId)
-                      )).map(task => renderTaskCard(task))
-                    )}
+                          
+                          <Collapse in={type.expanded}>
+                            <Box sx={{ pl: 2, space: 1 }}>
+                              {filterTasks(tasksInColumn).map(task => renderTaskCard(task))}
+                              {tasksInColumn.length === 0 && (
+                                <Typography variant="caption" sx={{ color: '#6b7280', fontStyle: 'italic', pl: 2 }}>
+                                  No tasks
+                                </Typography>
+                              )}
+                            </Box>
+                          </Collapse>
+                        </Box>
+                      );
+                    })}
                     
-                    {columnId !== 'backlog' && filterTasks(taskTypes.flatMap(type => 
-                      type.tasks.filter(task => task.status === columnId)
-                    )).length === 0 && (
+                    {taskTypes.every(type => type.tasks.filter(task => task.status === columnId).length === 0) && (
                       <Typography variant="body2" sx={{ 
                         color: '#6b7280', 
                         textAlign: 'center',
@@ -1109,7 +1100,8 @@ function App() {
     const searchResults = taskTypes.flatMap(type => 
       type.tasks.filter(task => 
         task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.description.toLowerCase().includes(searchTerm.toLowerCase())
+        task.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        type.name.toLowerCase().includes(searchTerm.toLowerCase())
       ).map(task => ({ ...task, blockType: type.name }))
     );
     
