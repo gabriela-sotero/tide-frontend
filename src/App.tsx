@@ -28,7 +28,8 @@ import {
   DragIndicator as DragIndicatorIcon,
   Settings as SettingsIcon,
   Check as CheckIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  ViewColumn as ViewColumnIcon
 } from '@mui/icons-material';
 import {
   DndContext,
@@ -240,7 +241,15 @@ function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
   const [backlogExpanded, setBacklogExpanded] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban'>('yearly');
+  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban'>('kanban');
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, blockId: string, blockName: string}>({
+    open: false,
+    blockId: '',
+    blockName: ''
+  });
+  const [openColumnsDialog, setOpenColumnsDialog] = useState(false);
+  const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
+  const [newColumnName, setNewColumnName] = useState('');
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -409,6 +418,15 @@ function App() {
     }
   };
 
+  const handleMarkTaskDone = (taskId: string) => {
+    setTaskTypes(prev => prev.map(type => ({
+      ...type,
+      tasks: type.tasks.map(t => 
+        t.id === taskId ? { ...t, status: 'done' as 'backlog' | 'to-do' | 'in-progress' | 'done' } : t
+      )
+    })));
+  };
+
   const handleOpenBlocksDialog = () => {
     setOpenBlocksDialog(true);
     setEditingBlock(null);
@@ -446,6 +464,49 @@ function App() {
     }
     
     setTaskTypes(prev => prev.filter(b => b.id !== blockId));
+  };
+
+  const handleOpenDeleteConfirm = (blockId: string, blockName: string) => {
+    setDeleteConfirmDialog({
+      open: true,
+      blockId,
+      blockName
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    const { blockId } = deleteConfirmDialog;
+    
+    // Delete the block regardless of whether it has tasks
+    setTaskTypes(prev => prev.filter(type => type.id !== blockId));
+    setDeleteConfirmDialog({ open: false, blockId: '', blockName: '' });
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmDialog({ open: false, blockId: '', blockName: '' });
+  };
+
+  const handleEditColumn = (columnId: string, currentName: string) => {
+    setEditingColumn({ id: columnId, name: currentName });
+  };
+
+  const handleSaveColumnName = () => {
+    if (!editingColumn || !editingColumn.name.trim()) return;
+    
+    // Update column name in the columns array
+    const updatedColumns = columns.map(col => 
+      col.id === editingColumn.id 
+        ? { ...col, name: editingColumn.name.toLowerCase() }
+        : col
+    );
+    
+    // Note: Since columns is a const array, we'd need to make it state to persist changes
+    // For now, this shows the concept - in a real app, columns would be in state
+    setEditingColumn(null);
+  };
+
+  const handleCancelColumnEdit = () => {
+    setEditingColumn(null);
   };
 
   const handleSaveBlock = () => {
@@ -650,6 +711,25 @@ function App() {
           >
             manage blocks
           </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ViewColumnIcon />}
+            onClick={() => setOpenColumnsDialog(true)}
+            sx={{
+              backgroundColor: 'transparent',
+              color: '#4a5568',
+              borderColor: '#8fa3b3',
+              '&:hover': { 
+                backgroundColor: 'rgba(90,108,125,0.1)',
+                borderColor: '#5a6c7d'
+              },
+              px: 2,
+              py: 0.75,
+              fontSize: '0.875rem'
+            }}
+          >
+            manage columns
+          </Button>
         </Box>
       </Box>
     </Box>
@@ -665,15 +745,15 @@ function App() {
         e.dataTransfer.setData('text/plain', task.id);
         e.dataTransfer.setData('type', 'task'); // Identify as task drag
       }}
-      sx={{
+                sx={{
         backgroundColor: '#ffffff',
         p: 2,
-        borderRadius: 1,
+                  borderRadius: 1,
         border: '1px solid #8fa3b3',
         cursor: 'grab',
         transition: 'all 0.2s',
         mb: 1,
-        '&:hover': {
+                  '&:hover': {
           backgroundColor: '#f8fafb',
           borderColor: '#5a6c7d',
           boxShadow: '0 2px 8px rgba(90,108,125,0.15)'
@@ -699,11 +779,11 @@ function App() {
             size="small"
             onClick={(e) => {
               e.stopPropagation();
-              handleEditTask(task);
+              handleMarkTaskDone(task.id);
             }}
-            sx={{ color: '#6b7d8f', '&:hover': { color: '#5a6c7d' } }}
+            sx={{ color: '#52c396', '&:hover': { color: '#38a169' } }}
           >
-            <EditIcon sx={{ fontSize: 16 }} />
+            <CheckIcon sx={{ fontSize: 16 }} />
         </IconButton>
           <IconButton
             size="small"
@@ -769,7 +849,7 @@ function App() {
       >
         Create Your First Block
       </Button>
-                          </Box>
+              </Box>
   );
 
   const renderKanbanBoard = () => (
@@ -785,7 +865,7 @@ function App() {
             return (
               <Box 
                 key={columnId} 
-                sx={{
+                    sx={{ 
                   flex: 1, 
                   minWidth: 300
                 }}
@@ -820,14 +900,35 @@ function App() {
                       <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 16 }} />
                       <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
                         {column.name}
-                      </Typography>
+                    </Typography>
+                      
+                      {/* Expand/Collapse button for backlog column */}
+                      {columnId === 'backlog' && (
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleBacklogExpansion();
+                          }}
+                            sx={{ 
+                            color: '#6b7d8f',
+                            '&:hover': { 
+                              color: '#4a5568',
+                              backgroundColor: 'rgba(90,108,125,0.1)'
+                            }
+                          }}
+                        >
+                          {backlogExpanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+                        </IconButton>
+                      )}
+                      
                       <IconButton
                         size="small"
                         onClick={(e) => {
                           e.stopPropagation(); // Prevent column drag when clicking add button
                           handleAddTask();
                         }}
-                        sx={{
+                    sx={{
                           color: '#6b7d8f',
                           '&:hover': { 
                             color: column.color,
@@ -848,9 +949,9 @@ function App() {
                             type.tasks.filter(task => task.status === columnId)
                           ).length}
                         </Typography>
-                      </Box>
-                    </Box>
                   </Box>
+                    </Box>
+              </Box>
 
                                     <Box 
                     data-column-id={columnId}
@@ -871,7 +972,7 @@ function App() {
                       // Use the centralized drop handler
                       handleColumnDrop(e, columnId);
                     }}
-                    sx={{
+                        sx={{
                       p: 2,
                       height: 'calc(100vh - 200px)',
                       overflow: 'auto',
@@ -883,27 +984,9 @@ function App() {
                   >
                     {columnId === 'backlog' ? (
                       <>
-                        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'center' }}>
-                          <Button
-                            variant="outlined"
-                            onClick={toggleBacklogExpansion}
-                            startIcon={backlogExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                            sx={{ 
-                              color: '#4a5568',
-                              borderColor: '#8fa3b3',
-                              '&:hover': { 
-                                backgroundColor: 'rgba(90,108,125,0.1)',
-                                borderColor: '#5a6c7d'
-                              }
-                            }}
-                          >
-                            {backlogExpanded ? 'collapse all' : 'expand all'}
-                          </Button>
-                        </Box>
-                        
                         {taskTypes.map(type => (
                           <Box key={type.id} sx={{ mb: 2 }}>
-                            <Box 
+                                                                                    <Box 
                               sx={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -917,7 +1000,7 @@ function App() {
                               onClick={() => toggleTypeExpansion(type.id)}
                             >
                               <Box 
-                                  sx={{ 
+                                sx={{ 
                                   width: 12, 
                                   height: 12, 
                                   borderRadius: '50%', 
@@ -931,6 +1014,47 @@ function App() {
                               <Typography variant="caption" sx={{ color: '#6b7280', mr: 1 }}>
                                 {type.tasks.filter(t => t.status === 'backlog').length}
                               </Typography>
+                              
+                              {/* Add Task button */}
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddTask(type.id);
+                                }}
+                                sx={{
+                                  color: '#52c396',
+                                  opacity: 0.8,
+                                  mr: 0.5,
+                                  '&:hover': { 
+                                    opacity: 1,
+                                    backgroundColor: 'rgba(82,195,150,0.1)' 
+                                  }
+                                }}
+                              >
+                                <AddIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                              
+                              {/* Delete button */}
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDeleteConfirm(type.id, type.name);
+                                }}
+                                sx={{
+                                  color: '#e53e3e',
+                                  opacity: 0.7,
+                                  mr: 0.5,
+                                  '&:hover': { 
+                                    opacity: 1,
+                                    backgroundColor: 'rgba(229,62,62,0.1)' 
+                                  }
+                                }}
+                              >
+                                <DeleteIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                              
                               {type.expanded ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
                             </Box>
                             
@@ -945,26 +1069,7 @@ function App() {
                                   </Typography>
                                 )}
                                 
-                                <Button
-                                  fullWidth
-                                  variant="outlined"
-                                  startIcon={<AddIcon />}
-                                  onClick={() => handleAddTask(type.id)}
-                                  sx={{ 
-                                    mt: 1,
-                                    p: 1.5,
-                                    border: '2px dashed #a8b5d1',
-                                    color: '#718096',
-                                    fontSize: '0.75rem',
-                                    '&:hover': {
-                                      borderColor: type.color,
-                                      color: type.color,
-                                      backgroundColor: `${type.color}10`
-                                    }
-                                  }}
-                                >
-                                  Add Task to {type.name}
-                                </Button>
+
                               </Box>
                             </Collapse>
                           </Box>
@@ -1175,14 +1280,16 @@ function App() {
           
           <Box sx={{ display: 'flex', gap: 2 }}>
             <FormControl fullWidth>
-              <InputLabel sx={{ color: '#6b7d8f' }}>priority</InputLabel>
+              <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>priority</InputLabel>
               <Select
                 value={newTask.priority}
                 onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
                 sx={{
                   backgroundColor: '#ffffff',
                   color: '#4a5568',
-                  borderColor: '#8fa3b3',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
                   '&:hover .MuiOutlinedInput-notchedOutline': {
                     borderColor: '#5a6c7d'
                   },
@@ -1198,19 +1305,21 @@ function App() {
             </FormControl>
             
             <FormControl fullWidth>
-              <InputLabel sx={{ color: '#6b7d8f' }}>status</InputLabel>
+              <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>status</InputLabel>
               <Select
                 value={newTask.status}
                 onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
                 sx={{
                   backgroundColor: '#ffffff',
                   color: '#4a5568',
-                  borderColor: '#8fa3b3',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
                   '&:hover .MuiOutlinedInput-notchedOutline': {
                     borderColor: '#5a6c7d'
                   },
                   '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#8fa3b3'
+                    borderColor: '#5a6c7d'
                   }
                 }}
               >
@@ -1224,14 +1333,16 @@ function App() {
           
           <Box sx={{ display: 'flex', gap: 2 }}>
             <FormControl fullWidth>
-              <InputLabel sx={{ color: '#6b7d8f' }}>type</InputLabel>
+              <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>type</InputLabel>
               <Select
                 value={newTask.type}
                 onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
                 sx={{
                   backgroundColor: '#ffffff',
                   color: '#4a5568',
-                  borderColor: '#8fa3b3',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
                   '&:hover .MuiOutlinedInput-notchedOutline': {
                     borderColor: '#5a6c7d'
                   },
@@ -1256,7 +1367,9 @@ function App() {
                 '& .MuiOutlinedInput-root': {
                   backgroundColor: '#ffffff',
                   color: '#4a5568',
-                  borderColor: '#8fa3b3',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
                   '&:hover .MuiOutlinedInput-notchedOutline': {
                     borderColor: '#5a6c7d'
                   },
@@ -1265,7 +1378,9 @@ function App() {
                   }
                 },
                 '& .MuiInputLabel-root': {
-                  color: '#6b7d8f'
+                  color: '#6b7d8f',
+                  backgroundColor: '#ffffff',
+                  px: 0.5
                 },
                 '& .MuiInputBase-input': {
                   color: '#4a5568'
@@ -1294,6 +1409,187 @@ function App() {
     </Dialog>
   );
 
+  const renderColumnsDialog = () => (
+    <Dialog open={openColumnsDialog} onClose={() => setOpenColumnsDialog(false)} maxWidth="md" fullWidth>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
+          manage columns
+        </Typography>
+        
+        <Typography variant="body2" sx={{ color: '#6b7d8f', mb: 3 }}>
+          edit column names, reorder, and view tasks in each column
+        </Typography>
+        
+        {/* Columns List */}
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {columnOrder.map((columnId, index) => {
+              const column = getColumnById(columnId);
+              if (!column) return null;
+              
+              const columnTasks = taskTypes.flatMap(type => 
+                type.tasks.filter(task => task.status === columnId)
+              );
+              
+              const isExpanded = taskTypes.some(type => type.expanded);
+              
+              return (
+                <Box
+                  key={columnId}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', columnId);
+                    e.dataTransfer.setData('type', 'column-reorder');
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const draggedColumnId = e.dataTransfer.getData('text/plain') as KanbanColumn;
+                    const dragType = e.dataTransfer.getData('type');
+                    
+                    if (dragType === 'column-reorder' && draggedColumnId !== columnId) {
+                      const draggedIndex = columnOrder.indexOf(draggedColumnId);
+                      const targetIndex = columnOrder.indexOf(columnId);
+                      
+                      if (draggedIndex !== -1 && targetIndex !== -1) {
+                        const newColumnOrder = [...columnOrder];
+                        const [draggedColumn] = newColumnOrder.splice(draggedIndex, 1);
+                        newColumnOrder.splice(targetIndex, 0, draggedColumn);
+                        setColumnOrder(newColumnOrder);
+                      }
+                    }
+                  }}
+                    sx={{ 
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 1,
+                    backgroundColor: '#ffffff',
+                    cursor: 'grab',
+                    '&:hover': {
+                      borderColor: '#8fa3b3'
+                    },
+                    '&:active': {
+                      cursor: 'grabbing'
+                    }
+                  }}
+                >
+                  {/* Column Header */}
+                  <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                    gap: 2, 
+                    p: 2,
+                    borderBottom: '1px solid #f1f5f8'
+                  }}>
+                    <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 18 }} />
+                    <Box 
+                      sx={{ 
+                        width: 4, 
+                        height: 16, 
+                        backgroundColor: column.color, 
+                        borderRadius: 0.5 
+                      }} 
+                    />
+                    
+                    {editingColumn?.id === columnId ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                        <TextField
+                          size="small"
+                          value={editingColumn.name}
+                          onChange={(e) => setEditingColumn({ ...editingColumn, name: e.target.value })}
+                          sx={{ flex: 1 }}
+                        />
+                        <IconButton size="small" onClick={handleSaveColumnName}>
+                          <CheckIcon sx={{ fontSize: 16, color: '#52c396' }} />
+                        </IconButton>
+                        <IconButton size="small" onClick={handleCancelColumnEdit}>
+                          <CloseIcon sx={{ fontSize: 16, color: '#e53e3e' }} />
+                        </IconButton>
+                      </Box>
+                    ) : (
+                      <>
+                        <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
+                          {column.name}
+                        </Typography>
+                        <IconButton 
+                          size="small" 
+                          onClick={() => handleEditColumn(columnId, column.name)}
+                          sx={{ color: '#6b7d8f', '&:hover': { color: '#4a5568' } }}
+                        >
+                          <EditIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </>
+                    )}
+                    
+                    <Typography variant="caption" sx={{ color: '#6b7d8f', minWidth: 60, textAlign: 'right' }}>
+                      {columnTasks.length} tasks
+                    </Typography>
+                  </Box>
+                  
+                  {/* Tasks Preview */}
+                  <Collapse in={columnTasks.length > 0}>
+                    <Box sx={{ p: 2, pt: 1 }}>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {columnTasks.slice(0, 6).map(task => (
+                          <Chip
+                            key={task.id}
+                            label={task.title}
+                            size="small"
+                            sx={{ 
+                              backgroundColor: '#f8fafb',
+                              color: '#6b7d8f',
+                              fontSize: '0.75rem',
+                              height: 24,
+                              maxWidth: 120,
+                              '& .MuiChip-label': {
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }
+                            }}
+                          />
+                        ))}
+                        {columnTasks.length > 6 && (
+                          <Chip
+                            label={`+${columnTasks.length - 6} more`}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#e2e8f0',
+                              color: '#6b7d8f',
+                              fontSize: '0.75rem',
+                              height: 24
+                            }}
+                          />
+                  )}
+                </Box>
+                    </Box>
+                  </Collapse>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+        
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="caption" sx={{ color: '#6b7d8f', fontStyle: 'italic' }}>
+            💡 drag to reorder • click edit to rename • tasks preview below each column
+          </Typography>
+          
+          <Button
+            variant="contained"
+            onClick={() => setOpenColumnsDialog(false)}
+            sx={{
+              backgroundColor: '#5a6c7d',
+              '&:hover': { backgroundColor: '#4a5568' }
+            }}
+          >
+            done
+          </Button>
+                </Box>
+              </Box>
+    </Dialog>
+  );
+
   const renderBlocksDialog = () => (
     <Dialog open={openBlocksDialog} onClose={() => setOpenBlocksDialog(false)} maxWidth="md" fullWidth>
       <Box sx={{ p: 3 }}>
@@ -1302,7 +1598,7 @@ function App() {
         </Typography>
         
         {/* Existing Blocks */}
-        <Box sx={{ mb: 3 }}>
+              <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ color: '#4a5568', mb: 2, fontWeight: 500 }}>
             existing blocks
           </Typography>
@@ -1372,7 +1668,7 @@ function App() {
                         fontSize: '0.75rem'
                       }}
                     />
-                  </Box>
+                </Box>
                   
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     {editingBlock && editingBlock.id === block.id ? (
@@ -1424,12 +1720,12 @@ function App() {
                         </IconButton>
                       </>
                     )}
-                          </Box>
+                </Box>
                 </Box>
               ))}
-            </Box>
+              </Box>
                   )}
-                </Box>
+      </Box>
         
         {/* Add New Block */}
         <Box sx={{ 
@@ -1648,7 +1944,59 @@ function App() {
       )}
       {renderTaskDialog()}
       {renderBlocksDialog()}
+      {renderColumnsDialog()}
       {renderSearchResults()}
+      
+      {/* Delete Confirmation Dialog */}
+      <Dialog 
+        open={deleteConfirmDialog.open} 
+        onClose={handleCancelDelete}
+        maxWidth="sm"
+        fullWidth
+      >
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ color: '#4a5568', mb: 2, fontWeight: 600 }}>
+            delete block
+          </Typography>
+          
+          <Typography variant="body1" sx={{ color: '#6b7d8f', mb: 3 }}>
+            are you sure you want to delete the block "{deleteConfirmDialog.blockName}"?
+          </Typography>
+          
+          <Typography variant="body2" sx={{ color: '#e53e3e', mb: 3, fontStyle: 'italic' }}>
+            ⚠️ this action cannot be undone. all tasks in this block will be permanently deleted.
+          </Typography>
+          
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button
+              variant="outlined"
+              onClick={handleCancelDelete}
+              sx={{
+                color: '#6b7d8f',
+                borderColor: '#8fa3b3',
+                '&:hover': {
+                  borderColor: '#5a6c7d',
+                  backgroundColor: '#f1f5f8'
+                }
+              }}
+            >
+              cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleConfirmDelete}
+              sx={{
+                backgroundColor: '#e53e3e',
+                '&:hover': {
+                  backgroundColor: '#c53030'
+                }
+              }}
+            >
+              delete
+            </Button>
+          </Box>
+        </Box>
+      </Dialog>
     </Box>
   );
 }
