@@ -1647,9 +1647,7 @@ function App() {
                 }
               }}
               onClick={() => {
-                setSelectedTask(task);
-                setOpenTaskDialog(true);
-                setIsEditing(false);
+                handleTaskClick(task);
                 setSearchTerm('');
               }}
             >
