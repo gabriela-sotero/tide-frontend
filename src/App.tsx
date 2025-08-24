@@ -63,11 +63,12 @@ interface TaskType {
   id: string;
   name: string;
   color: string;
-  expanded: boolean;
+  expanded: boolean; // Keep for backward compatibility
+  expandedByColumn: Record<string, boolean>;
   tasks: Task[];
 }
 
-type KanbanColumn = 'backlog' | 'to-do' | 'in-progress' | 'done';
+type KanbanColumn = string;
 
 // IndexedDB setup
 const DB_NAME = 'tide';
@@ -135,12 +136,21 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[] } | null> => {
 
 function App() {
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
-  const columns = [
+  const [columns, setColumns] = useState([
     { id: 'backlog', name: 'backlog', bgColor: '#e2e8f0', color: '#4a5568' },
     { id: 'to-do', name: 'to do', bgColor: '#e2e8f0', color: '#4a5568' },
     { id: 'in-progress', name: 'in progress', bgColor: '#e2e8f0', color: '#4a5568' },
     { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568' }
-  ];
+  ]);
+
+  // Helper function to get column by id
+  const getColumnById = (id: string) => columns.find(col => col.id === id);
+  
+  // Helper function to get column name by id
+  const getColumnNameById = (id: string) => {
+    const column = columns.find(col => col.id === id);
+    return column ? column.name : id;
+  };
 
   // State for column reordering
   const [columnOrder, setColumnOrder] = useState<KanbanColumn[]>(['backlog', 'to-do', 'in-progress', 'done']);
@@ -155,6 +165,68 @@ function App() {
   const handleColumnDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleTaskDrop = (e: React.DragEvent, targetColumnId: string, targetTypeId: string, targetPosition: 'top' | 'bottom' | 'middle') => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const taskId = e.dataTransfer.getData('text/plain');
+    const dragType = e.dataTransfer.getData('type');
+    
+    if (dragType !== 'task') return;
+    
+    let taskToMove: Task | null = null;
+    let sourceType: string | null = null;
+
+    // Find the task to move
+    for (const type of taskTypes) {
+      const foundTask = type.tasks.find(t => t.id === taskId);
+      if (foundTask) {
+        taskToMove = foundTask;
+        sourceType = type.id;
+        break;
+      }
+    }
+
+    if (!taskToMove || !sourceType) return;
+
+    // Determine new priority based on position
+    let newPriority: 'high' | 'medium' | 'low' = taskToMove.priority;
+    
+    if (targetPosition === 'top') {
+      newPriority = 'high';
+    } else if (targetPosition === 'middle') {
+      newPriority = 'medium';
+    } else if (targetPosition === 'bottom') {
+      newPriority = 'low';
+    }
+
+    // Remove task from source
+    setTaskTypes(prev => prev.map(type => 
+      type.id === sourceType 
+        ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
+        : type
+    ));
+
+    // Update task with new status and priority
+    const updatedTask = { 
+      ...taskToMove, 
+      status: targetColumnId as 'backlog' | 'to-do' | 'in-progress' | 'done',
+      priority: newPriority
+    };
+    
+    // Add task to target - if moving to 'done', add at the top
+    setTaskTypes(prev => prev.map(type => 
+      type.id === sourceType 
+        ? { 
+            ...type, 
+            tasks: targetColumnId === 'done' 
+              ? [updatedTask, ...type.tasks] // Add at top for 'done' column
+              : [...type.tasks, updatedTask] // Add at bottom for other columns
+          }
+        : type
+    ));
   };
 
   const handleColumnDrop = (e: React.DragEvent, targetColumnId: string) => {
@@ -179,7 +251,7 @@ function App() {
       
       setColumnOrder(newColumnOrder);
     } else if (dragType === 'task') {
-      // Handle task movement (existing logic)
+      // Handle task movement with priority adjustment
       const taskId = draggedId;
       let taskToMove: Task | null = null;
       let sourceType: string | null = null;
@@ -193,25 +265,38 @@ function App() {
         }
       }
 
-      if (taskToMove && sourceType && taskToMove.status !== targetColumnId) {
+      if (taskToMove && sourceType) {
+        // Get target priority information
+        const targetPriority = e.dataTransfer.getData('priority') || taskToMove.priority;
+        
+        // Remove task from source
         setTaskTypes(prev => prev.map(type => 
           type.id === sourceType 
             ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
             : type
         ));
 
-        const updatedTask = { ...taskToMove, status: targetColumnId as 'backlog' | 'to-do' | 'in-progress' | 'done' };
+        // Update task with new status and priority
+        const updatedTask = { 
+          ...taskToMove, 
+          status: targetColumnId as 'backlog' | 'to-do' | 'in-progress' | 'done',
+          priority: targetPriority as 'high' | 'medium' | 'low'
+        };
+        
+        // Add task to target - if moving to 'done', add at the top
         setTaskTypes(prev => prev.map(type => 
           type.id === sourceType 
-            ? { ...type, tasks: [...type.tasks, updatedTask] }
+            ? { 
+                ...type, 
+                tasks: targetColumnId === 'done' 
+                  ? [updatedTask, ...type.tasks] // Add at top for 'done' column
+                  : [...type.tasks, updatedTask] // Add at bottom for other columns
+              }
             : type
         ));
       }
     }
   };
-
-  // Helper function to get column by id
-  const getColumnById = (id: string) => columns.find(col => col.id === id);
 
   const [openTaskDialog, setOpenTaskDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -250,6 +335,11 @@ function App() {
   const [openColumnsDialog, setOpenColumnsDialog] = useState(false);
   const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
+  const [moveTaskDialog, setMoveTaskDialog] = useState<{open: boolean, taskId: string, currentBlockName: string}>({
+    open: false,
+    taskId: '',
+    currentBlockName: ''
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -276,16 +366,30 @@ function App() {
     }
   }, [taskTypes]);
 
-  const toggleTypeExpansion = (typeId: string) => {
+  const toggleTypeExpansion = (typeId: string, columnId: KanbanColumn) => {
     setTaskTypes(prev => prev.map(type => 
-      type.id === typeId ? { ...type, expanded: !type.expanded } : type
+      type.id === typeId ? { 
+        ...type, 
+        expandedByColumn: {
+          ...type.expandedByColumn,
+          [columnId]: !type.expandedByColumn?.[columnId]
+        }
+      } : type
     ));
   };
 
-  const toggleBacklogExpansion = () => {
+  const toggleAllBlocksExpansion = () => {
     const newExpandedState = !backlogExpanded;
     setBacklogExpanded(newExpandedState);
-    setTaskTypes(prev => prev.map(type => ({ ...type, expanded: newExpandedState })));
+    
+    // Toggle all blocks in all columns dynamically
+    setTaskTypes(prev => prev.map(type => ({
+      ...type,
+      expandedByColumn: columns.reduce((acc, col) => ({
+        ...acc,
+        [col.id]: newExpandedState
+      }), {})
+    })));
   };
 
   const getPriorityColor = (priority: string) => {
@@ -445,7 +549,11 @@ function App() {
       name: newTask.type,
       color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
       tasks: [],
-      expanded: true
+      expanded: true,
+      expandedByColumn: columns.reduce((acc, col) => ({
+        ...acc,
+        [col.id]: true
+      }), {})
     };
     
     setTaskTypes(prev => [...prev, newBlock]);
@@ -493,20 +601,125 @@ function App() {
   const handleSaveColumnName = () => {
     if (!editingColumn || !editingColumn.name.trim()) return;
     
-    // Update column name in the columns array
-    const updatedColumns = columns.map(col => 
-      col.id === editingColumn.id 
-        ? { ...col, name: editingColumn.name.toLowerCase() }
-        : col
-    );
+    const oldName = columns.find(col => col.id === editingColumn.id)?.name || '';
+    const newName = editingColumn.name.toLowerCase();
     
-    // Note: Since columns is a const array, we'd need to make it state to persist changes
-    // For now, this shows the concept - in a real app, columns would be in state
+    console.log('Saving column name:', { oldName, newName, columnId: editingColumn.id });
+    
+    // Update column name in the columns state
+    setColumns(prev => {
+      const updated = prev.map(col => 
+        col.id === editingColumn.id 
+          ? { ...col, name: newName }
+          : col
+      );
+      console.log('Updated columns:', updated);
+      return updated;
+    });
+    
+    // Update all task statuses that reference the old column name
+    setTaskTypes(prev => {
+      const updated = prev.map(type => ({
+        ...type,
+        tasks: type.tasks.map(task => ({
+          ...task,
+          status: task.status === oldName ? newName as any : task.status
+        }))
+      }));
+      console.log('Updated task types:', updated);
+      return updated;
+    });
+    
     setEditingColumn(null);
   };
 
   const handleCancelColumnEdit = () => {
     setEditingColumn(null);
+  };
+
+  const handleAddNewColumn = () => {
+    if (!newColumnName.trim()) return;
+    
+    const newColumnId = newColumnName.toLowerCase().replace(/\s+/g, '-');
+    const newColumn = {
+      id: newColumnId,
+      name: newColumnName.toLowerCase(),
+      bgColor: '#e2e8f0',
+      color: '#4a5568'
+    };
+    
+    // Add new column to columns array
+    setColumns(prev => [...prev, newColumn]);
+    
+    // Add new column to column order
+    setColumnOrder(prev => [...prev, newColumnId as KanbanColumn]);
+    
+    // Clear input
+    setNewColumnName('');
+  };
+
+  const handleMoveTask = (taskId: string) => {
+    // Find the task and its current block
+    let currentBlockName = '';
+    for (const type of taskTypes) {
+      const foundTask = type.tasks.find(t => t.id === taskId);
+      if (foundTask) {
+        currentBlockName = type.name;
+        break;
+      }
+    }
+    
+    setMoveTaskDialog({
+      open: true,
+      taskId,
+      currentBlockName
+    });
+  };
+
+  const handleConfirmMoveTask = (targetBlockId: string) => {
+    const { taskId } = moveTaskDialog;
+    
+    // Find the task to move
+    let taskToMove: Task | null = null;
+    let sourceType: string | null = null;
+
+    for (const type of taskTypes) {
+      const foundTask = type.tasks.find(t => t.id === taskId);
+      if (foundTask) {
+        taskToMove = foundTask;
+        sourceType = type.id;
+        break;
+      }
+    }
+
+    if (taskToMove && sourceType && sourceType !== targetBlockId) {
+      // Remove task from source block
+      setTaskTypes(prev => prev.map(type => 
+        type.id === sourceType 
+          ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
+          : type
+      ));
+
+      // Add task to target block - if moving to 'done' column, add at the top
+      const updatedTask = { ...taskToMove, type: targetBlockId };
+      setTaskTypes(prev => prev.map(type => 
+        type.id === targetBlockId 
+          ? { 
+              ...type, 
+              tasks: updatedTask.status === 'done' 
+                ? [updatedTask, ...type.tasks] // Add at top for 'done' column
+                : [...type.tasks, updatedTask] // Add at bottom for other columns
+            }
+          : type
+      ));
+    }
+
+    // Close dialog
+    setMoveTaskDialog({ open: false, taskId: '', currentBlockName: '' });
+  };
+
+  const handleCancelMoveTask = () => {
+    setMoveTaskDialog({ open: false, taskId: '', currentBlockName: '' });
   };
 
   const handleSaveBlock = () => {
@@ -528,12 +741,32 @@ function App() {
     setEditingBlock(null);
   };
 
+  const sortTasksByPriority = (tasks: Task[]) => {
+    const priorityOrder = { high: 3, medium: 2, low: 1 };
+    
+    return tasks.sort((a, b) => {
+      // First sort by priority (high > medium > low)
+      const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // Within same priority, sort by creation date (oldest first)
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  };
+
   const filterTasks = (tasks: Task[]) => {
-    if (!searchTerm) return tasks;
-    return tasks.filter(task =>
-      task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.description.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    let filteredTasks = tasks;
+    
+    // Apply search filter if search term exists
+    if (searchTerm) {
+      filteredTasks = tasks.filter(task =>
+        task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        task.description.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // Sort by priority and creation date
+    return sortTasksByPriority(filteredTasks);
   };
 
   // Drag & Drop handlers
@@ -744,6 +977,8 @@ function App() {
         e.stopPropagation(); // Prevent column drag when dragging task
         e.dataTransfer.setData('text/plain', task.id);
         e.dataTransfer.setData('type', 'task'); // Identify as task drag
+        e.dataTransfer.setData('priority', task.priority); // Include current priority
+        e.dataTransfer.setData('status', task.status); // Include current status
       }}
                 sx={{
         backgroundColor: '#ffffff',
@@ -789,6 +1024,16 @@ function App() {
             size="small"
             onClick={(e) => {
               e.stopPropagation();
+              handleMoveTask(task.id);
+            }}
+            sx={{ color: '#4a9eff', '&:hover': { color: '#3182ce' } }}
+          >
+            <DragIndicatorIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
               handleDeleteTask(task.id);
             }}
             sx={{ color: '#6b7d8f', '&:hover': { color: '#e53e3e' } }}
@@ -819,7 +1064,7 @@ function App() {
             {task.dueDate.toLocaleDateString()}
                     </Typography>
         )}
-                  </Box>
+              </Box>
     </Box>
   );
 
@@ -842,14 +1087,14 @@ function App() {
         variant="contained"
         startIcon={<AddIcon />}
         onClick={handleOpenBlocksDialog}
-                            sx={{ 
+                    sx={{ 
           backgroundColor: '#5a6c7d',
           '&:hover': { backgroundColor: '#4a5568' }
         }}
       >
         Create Your First Block
       </Button>
-              </Box>
+                  </Box>
   );
 
   const renderKanbanBoard = () => (
@@ -865,7 +1110,7 @@ function App() {
             return (
               <Box 
                 key={columnId} 
-                    sx={{ 
+                            sx={{ 
                   flex: 1, 
                   minWidth: 300
                 }}
@@ -896,19 +1141,19 @@ function App() {
                       }
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 16 }} />
                       <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
                         {column.name}
                     </Typography>
                       
-                      {/* Expand/Collapse button for backlog column */}
+                      {/* Expand/Collapse all blocks button for backlog column */}
                       {columnId === 'backlog' && (
                         <IconButton
                           size="small"
                           onClick={(e) => {
                             e.stopPropagation();
-                            toggleBacklogExpansion();
+                            toggleAllBlocksExpansion();
                           }}
                             sx={{ 
                             color: '#6b7d8f',
@@ -985,24 +1230,24 @@ function App() {
                     {taskTypes.map(type => {
                       const tasksInColumn = type.tasks.filter(task => task.status === columnId);
                       if (tasksInColumn.length === 0) return null;
-                      
-                      return (
+                          
+                          return (
                         <Box key={type.id} sx={{ mb: 2 }}>
-                          <Box 
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
                               cursor: 'pointer',
                               mb: 1,
                               p: 1,
                               borderRadius: 1,
-                              backgroundColor: type.expanded ? 'rgba(168,181,209,0.1)' : 'transparent',
+                              backgroundColor: type.expandedByColumn?.[columnId] ? 'rgba(168,181,209,0.1)' : 'transparent',
                               '&:hover': { backgroundColor: 'rgba(168,181,209,0.05)' }
                             }}
-                            onClick={() => toggleTypeExpansion(type.id)}
+                            onClick={() => toggleTypeExpansion(type.id, columnId)}
                           >
                             <Box 
-                              sx={{ 
+                                  sx={{ 
                                 width: 12, 
                                 height: 12, 
                                 borderRadius: '50%', 
@@ -1057,12 +1302,98 @@ function App() {
                               <DeleteIcon sx={{ fontSize: 14 }} />
                             </IconButton>
                             
-                            {type.expanded ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
+                            {type.expandedByColumn?.[columnId] ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
                           </Box>
                           
-                          <Collapse in={type.expanded}>
+                          <Collapse in={type.expandedByColumn?.[columnId] || false}>
                             <Box sx={{ pl: 2, space: 1 }}>
-                              {filterTasks(tasksInColumn).map(task => renderTaskCard(task))}
+                              {/* Top drop zone for high priority */}
+                              <Box
+                                sx={{
+                                  height: 20,
+                                  backgroundColor: 'transparent',
+                                  border: '2px dashed transparent',
+                                  borderRadius: 1,
+                                  mb: 1,
+                                  transition: 'all 0.2s',
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(239,68,68,0.1)',
+                                    borderColor: '#ef4444'
+                                  }
+                                }}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)';
+                                  e.currentTarget.style.borderColor = '#ef4444';
+                                }}
+                                onDragLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                  e.currentTarget.style.borderColor = 'transparent';
+                                }}
+                                onDrop={(e) => handleTaskDrop(e, columnId, type.id, 'top')}
+                              />
+                              
+                              {/* Render tasks with drop zones between them */}
+                              {filterTasks(tasksInColumn).map((task, index) => (
+                                <Box key={task.id}>
+                                  {renderTaskCard(task)}
+                                  
+                                  {/* Middle drop zone for medium priority (between tasks) */}
+                                  {index < filterTasks(tasksInColumn).length - 1 && (
+                                    <Box
+                                      sx={{
+                                        height: 16,
+                                        backgroundColor: 'transparent',
+                                        border: '2px dashed transparent',
+                                        borderRadius: 1,
+                                        my: 0.5,
+                                        transition: 'all 0.2s',
+                                        '&:hover': {
+                                          backgroundColor: 'rgba(245,158,11,0.1)',
+                                          borderColor: '#f59e0b'
+                                        }
+                                      }}
+                                      onDragOver={(e) => {
+                                        e.preventDefault();
+                                        e.currentTarget.style.backgroundColor = 'rgba(245,158,11,0.1)';
+                                        e.currentTarget.style.borderColor = '#f59e0b';
+                                      }}
+                                      onDragLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                        e.currentTarget.style.borderColor = 'transparent';
+                                      }}
+                                      onDrop={(e) => handleTaskDrop(e, columnId, type.id, 'middle')}
+                                    />
+                                  )}
+                                </Box>
+                              ))}
+                              
+                              {/* Bottom drop zone for low priority */}
+                              <Box
+                                  sx={{ 
+                                  height: 20,
+                                  backgroundColor: 'transparent',
+                                  border: '2px dashed transparent',
+                                  borderRadius: 1,
+                                  mt: 1,
+                                  transition: 'all 0.2s',
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(34,197,94,0.1)',
+                                    borderColor: '#22c55e'
+                                  }
+                                }}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.currentTarget.style.backgroundColor = 'rgba(34,197,94,0.1)';
+                                  e.currentTarget.style.borderColor = '#22c55e';
+                                }}
+                                onDragLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                  e.currentTarget.style.borderColor = 'transparent';
+                                }}
+                                onDrop={(e) => handleTaskDrop(e, columnId, type.id, 'bottom')}
+                              />
+                              
                               {tasksInColumn.length === 0 && (
                                 <Typography variant="caption" sx={{ color: '#6b7280', fontStyle: 'italic', pl: 2 }}>
                                   No tasks
@@ -1070,9 +1401,38 @@ function App() {
                               )}
                             </Box>
                           </Collapse>
-                        </Box>
-                      );
-                    })}
+                            
+                            {/* Add New Task Button at the end of each block */}
+                            <Box sx={{ pl: 2, mt: 1 }}>
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<AddIcon sx={{ fontSize: 14 }} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddTask(type.id);
+                                }}
+                                sx={{
+                                  width: '100%',
+                                  justifyContent: 'flex-start',
+                                  textTransform: 'none',
+                                  borderColor: '#8fa3b3',
+                                  color: '#4a5568',
+                                  fontSize: '0.75rem',
+                                  py: 0.5,
+                                  '&:hover': {
+                                    borderColor: '#5a6c7d',
+                                    backgroundColor: '#f1f5f8'
+                                  }
+                                }}
+                              >
+                                add new task
+                              </Button>
+                            </Box>
+                            
+                            </Box>
+                          );
+                        })}
                     
                     {taskTypes.every(type => type.tasks.filter(task => task.status === columnId).length === 0) && (
                       <Typography variant="body2" sx={{ 
@@ -1086,8 +1446,8 @@ function App() {
                     )}
                   </Box>
                 </Box>
-                            </Box>
-                          );
+                      </Box>
+                    );
                         })}
                       </Box>
                 )}
@@ -1104,6 +1464,18 @@ function App() {
         type.name.toLowerCase().includes(searchTerm.toLowerCase())
       ).map(task => ({ ...task, blockType: type.name }))
     );
+    
+    // Sort search results by priority and creation date
+    const sortedSearchResults = searchResults.sort((a, b) => {
+      const priorityOrder = { high: 3, medium: 2, low: 1 };
+      
+      // First sort by priority (high > medium > low)
+      const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // Within same priority, sort by creation date (oldest first)
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
     
     if (searchResults.length === 0) return null;
     
@@ -1128,7 +1500,7 @@ function App() {
               </Box>
               
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 1 }}>
-          {searchResults.map((task) => (
+          {sortedSearchResults.map((task) => (
                   <Box 
               key={`${task.id}-${task.blockType}`}
                     sx={{ 
@@ -1402,19 +1774,15 @@ function App() {
   );
 
   const renderColumnsDialog = () => (
-    <Dialog open={openColumnsDialog} onClose={() => setOpenColumnsDialog(false)} maxWidth="md" fullWidth>
+    <Dialog open={openColumnsDialog} onClose={() => setOpenColumnsDialog(false)} maxWidth="sm" fullWidth>
       <Box sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
           manage columns
         </Typography>
         
-        <Typography variant="body2" sx={{ color: '#6b7d8f', mb: 3 }}>
-          edit column names, reorder, and view tasks in each column
-        </Typography>
-        
         {/* Columns List */}
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ mb: 4 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             {columnOrder.map((columnId, index) => {
               const column = getColumnById(columnId);
               if (!column) return null;
@@ -1422,8 +1790,6 @@ function App() {
               const columnTasks = taskTypes.flatMap(type => 
                 type.tasks.filter(task => task.status === columnId)
               );
-              
-              const isExpanded = taskTypes.some(type => type.expanded);
               
               return (
                 <Box
@@ -1453,13 +1819,15 @@ function App() {
                       }
                     }
                   }}
-                    sx={{ 
+                  sx={{ 
                     border: '1px solid #e2e8f0',
                     borderRadius: 1,
                     backgroundColor: '#ffffff',
                     cursor: 'grab',
+                    transition: 'all 0.2s',
                     '&:hover': {
-                      borderColor: '#8fa3b3'
+                      borderColor: '#8fa3b3',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                     },
                     '&:active': {
                       cursor: 'grabbing'
@@ -1468,16 +1836,16 @@ function App() {
                 >
                   {/* Column Header */}
                   <Box sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
+                    display: 'flex', 
+                    alignItems: 'center', 
                     gap: 2, 
-                    p: 2,
-                    borderBottom: '1px solid #f1f5f8'
+                    p: 2
                   }}>
-                    <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 18 }} />
+                    <DragIndicatorIcon sx={{ color: '#8fa3b3', fontSize: 16 }} />
+                    
                     <Box 
                       sx={{ 
-                        width: 4, 
+                        width: 3, 
                         height: 16, 
                         backgroundColor: column.color, 
                         borderRadius: 0.5 
@@ -1491,6 +1859,7 @@ function App() {
                           value={editingColumn.name}
                           onChange={(e) => setEditingColumn({ ...editingColumn, name: e.target.value })}
                           sx={{ flex: 1 }}
+                          autoFocus
                         />
                         <IconButton size="small" onClick={handleSaveColumnName}>
                           <CheckIcon sx={{ fontSize: 16, color: '#52c396' }} />
@@ -1501,72 +1870,63 @@ function App() {
                       </Box>
                     ) : (
                       <>
-                        <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
+                        <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
                           {column.name}
                         </Typography>
                         <IconButton 
                           size="small" 
                           onClick={() => handleEditColumn(columnId, column.name)}
-                          sx={{ color: '#6b7d8f', '&:hover': { color: '#4a5568' } }}
+                          sx={{ color: '#8fa3b3', '&:hover': { color: '#5a6c7d' } }}
                         >
                           <EditIcon sx={{ fontSize: 16 }} />
                         </IconButton>
                       </>
                     )}
                     
-                    <Typography variant="caption" sx={{ color: '#6b7d8f', minWidth: 60, textAlign: 'right' }}>
-                      {columnTasks.length} tasks
+                    <Typography variant="caption" sx={{ color: '#8fa3b3', minWidth: 40, textAlign: 'right' }}>
+                      {columnTasks.length}
                     </Typography>
                   </Box>
-                  
-                  {/* Tasks Preview */}
-                  <Collapse in={columnTasks.length > 0}>
-                    <Box sx={{ p: 2, pt: 1 }}>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        {columnTasks.slice(0, 6).map(task => (
-                          <Chip
-                            key={task.id}
-                            label={task.title}
-                            size="small"
-                            sx={{ 
-                              backgroundColor: '#f8fafb',
-                              color: '#6b7d8f',
-                              fontSize: '0.75rem',
-                              height: 24,
-                              maxWidth: 120,
-                              '& .MuiChip-label': {
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis'
-                              }
-                            }}
-                          />
-                        ))}
-                        {columnTasks.length > 6 && (
-                          <Chip
-                            label={`+${columnTasks.length - 6} more`}
-                            size="small"
-                            sx={{
-                              backgroundColor: '#e2e8f0',
-                              color: '#6b7d8f',
-                              fontSize: '0.75rem',
-                              height: 24
-                            }}
-                          />
-                  )}
-                </Box>
-                    </Box>
-                  </Collapse>
                 </Box>
               );
             })}
           </Box>
         </Box>
         
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="caption" sx={{ color: '#6b7d8f', fontStyle: 'italic' }}>
-            💡 drag to reorder • click edit to rename • tasks preview below each column
-          </Typography>
-          
+        {/* Add New Column Section */}
+        <Box sx={{ mb: 3, p: 2, border: '1px dashed #cbd5e0', borderRadius: 1, backgroundColor: '#f8fafb' }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              placeholder="new column name"
+              value={newColumnName}
+              onChange={(e) => setNewColumnName(e.target.value)}
+              sx={{ flex: 1 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={handleAddNewColumn}
+              disabled={!newColumnName.trim()}
+              size="small"
+              sx={{
+                borderColor: '#8fa3b3',
+                color: '#4a5568',
+                '&:hover': {
+                  borderColor: '#5a6c7d',
+                  backgroundColor: '#f1f5f8'
+                },
+                '&:disabled': {
+                  borderColor: '#e2e8f0',
+                  color: '#a0aec0'
+                }
+              }}
+            >
+              add
+            </Button>
+          </Box>
+        </Box>
+
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button
             variant="contained"
             onClick={() => setOpenColumnsDialog(false)}
@@ -1577,8 +1937,8 @@ function App() {
           >
             done
           </Button>
-                </Box>
-              </Box>
+        </Box>
+      </Box>
     </Dialog>
   );
 
@@ -1938,6 +2298,84 @@ function App() {
       {renderBlocksDialog()}
       {renderColumnsDialog()}
       {renderSearchResults()}
+      
+      {/* Move Task Dialog */}
+      <Dialog 
+        open={moveTaskDialog.open} 
+        onClose={handleCancelMoveTask}
+        maxWidth="sm"
+        fullWidth
+      >
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ color: '#4a5568', mb: 2, fontWeight: 600 }}>
+            move task to different project
+          </Typography>
+          
+          <Typography variant="body1" sx={{ color: '#6b7d8f', mb: 3 }}>
+            select the project where you want to move this task:
+          </Typography>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
+            {taskTypes.map(type => (
+              <Button
+                key={type.id}
+                variant="outlined"
+                onClick={() => handleConfirmMoveTask(type.id)}
+                disabled={type.name === moveTaskDialog.currentBlockName}
+                sx={{
+                  justifyContent: 'flex-start',
+                  textTransform: 'none',
+                  borderColor: '#8fa3b3',
+                  color: '#4a5568',
+                  '&:hover': {
+                    borderColor: '#5a6c7d',
+                    backgroundColor: '#f1f5f8'
+                  },
+                  '&:disabled': {
+                    borderColor: '#e2e8f0',
+                    color: '#a0aec0',
+                    backgroundColor: '#f7fafc'
+                  }
+                }}
+                startIcon={
+                  <Box 
+                    sx={{ 
+                      width: 12, 
+                      height: 12, 
+                      borderRadius: '50%', 
+                      backgroundColor: type.color 
+                    }} 
+                  />
+                }
+              >
+                {type.name}
+                {type.name === moveTaskDialog.currentBlockName && (
+                  <Typography variant="caption" sx={{ ml: 1, color: '#a0aec0', fontStyle: 'italic' }}>
+                    (current)
+                  </Typography>
+                )}
+              </Button>
+            ))}
+          </Box>
+          
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button
+              variant="outlined"
+              onClick={handleCancelMoveTask}
+              sx={{
+                color: '#6b7d8f',
+                borderColor: '#8fa3b3',
+                '&:hover': {
+                  borderColor: '#5a6c7d',
+                  backgroundColor: '#f1f5f8'
+                }
+              }}
+            >
+              cancel
+            </Button>
+          </Box>
+        </Box>
+      </Dialog>
       
       {/* Delete Confirmation Dialog */}
       <Dialog 
