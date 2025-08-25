@@ -54,7 +54,7 @@ interface Task {
   title: string;
   description: string;
   priority: 'low' | 'medium' | 'high';
-  status: 'backlog' | 'to-do' | 'in-progress' | 'done';
+  status: string; // Allow dynamic column names
   type: string;
   createdAt: Date;
   startDate: Date;
@@ -120,7 +120,17 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[] } | null> => {
       request.onsuccess = () => {
         const result = request.result;
         if (result && result.taskTypes && Array.isArray(result.taskTypes)) {
-          resolve({ taskTypes: result.taskTypes });
+          // Convert date strings back to Date objects
+          const taskTypesWithDates = result.taskTypes.map((type: TaskType) => ({
+            ...type,
+            tasks: type.tasks.map((task: Task) => ({
+              ...task,
+              createdAt: new Date(task.createdAt),
+              startDate: new Date(task.startDate),
+              dueDate: new Date(task.dueDate)
+            }))
+          }));
+          resolve({ taskTypes: taskTypesWithDates });
         } else {
           resolve(null);
         }
@@ -139,10 +149,10 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[] } | null> => {
 function App() {
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [columns, setColumns] = useState([
-    { id: 'backlog', name: 'backlog', bgColor: '#e2e8f0', color: '#4a5568' },
-    { id: 'to-do', name: 'to do', bgColor: '#e2e8f0', color: '#4a5568' },
-    { id: 'in-progress', name: 'in progress', bgColor: '#e2e8f0', color: '#4a5568' },
-    { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568' }
+    { id: 'backlog', name: 'backlog', bgColor: '#e2e8f0', color: '#4a5568', fixed: true },
+    { id: 'to-do', name: 'to do', bgColor: '#e2e8f0', color: '#4a5568', fixed: false },
+    { id: 'in-progress', name: 'in progress', bgColor: '#e2e8f0', color: '#4a5568', fixed: false },
+    { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568', fixed: true }
   ]);
 
   // Helper function to get column by id
@@ -309,10 +319,7 @@ function App() {
   // Helper function to get today's date in local timezone
   const getTodayDate = () => {
     const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return new Date(`${year}-${month}-${day}`);
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
   };
 
   const [newTask, setNewTask] = useState<Task>({
@@ -329,7 +336,7 @@ function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
   const [backlogExpanded, setBacklogExpanded] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly'>('kanban');
+  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly' | 'weekly'>('kanban');
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, blockId: string, blockName: string, columnId?: string}>({
     open: false,
     blockId: '',
@@ -344,6 +351,15 @@ function App() {
   const [selectedBlockColor, setSelectedBlockColor] = useState('#5a6c7d');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(2025);
+  const [selectedWeek, setSelectedWeek] = useState(() => {
+    const now = new Date();
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const days = Math.floor((now.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+    // Adjust for Monday start
+    const dayOfWeek = startOfYear.getDay();
+    const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    return Math.ceil((days + mondayOffset + 1) / 7);
+  });
   const [moveTaskDialog, setMoveTaskDialog] = useState<{open: boolean, taskId: string, currentBlockName: string}>({
     open: false,
     taskId: '',
@@ -438,7 +454,7 @@ function App() {
   };
 
   const handleAddTask = (blockType?: string, columnId?: string) => {
-    const newStatus = (columnId as 'backlog' | 'to-do' | 'in-progress' | 'done') || 'backlog';
+    const newStatus = (columnId as string) || 'backlog';
     console.log('handleAddTask called with:', { blockType, columnId, newStatus });
     
     setNewTask({
@@ -768,7 +784,8 @@ function App() {
       id: newColumnId,
       name: newColumnName.toLowerCase(),
       bgColor: '#e2e8f0',
-      color: '#4a5568'
+      color: '#4a5568',
+      fixed: false
     };
     
     // Add new column to columns array
@@ -1012,6 +1029,20 @@ function App() {
         >
           monthly
         </Button>
+        <Button
+          variant={currentPage === 'weekly' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('weekly')}
+          sx={{ 
+            backgroundColor: currentPage === 'weekly' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'weekly' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'weekly' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          weekly
+        </Button>
       </Box>
       </Box>
     );
@@ -1121,8 +1152,8 @@ function App() {
           </Button>
         </Box>
       </Box>
-    </Box>
-  );
+      </Box>
+    );
 
   const renderTaskCard = (task: Task) => (
     <Box
@@ -1136,7 +1167,7 @@ function App() {
         e.dataTransfer.setData('priority', task.priority); // Include current priority
         e.dataTransfer.setData('status', task.status); // Include current status
       }}
-                sx={{
+              sx={{
         backgroundColor: '#ffffff',
         p: 2,
                   borderRadius: 1,
@@ -1207,7 +1238,7 @@ function App() {
         <Chip
           label={task.priority}
           size="small"
-                    sx={{ 
+              sx={{
             backgroundColor: `${getPriorityColor(task.priority)}20`,
             color: getPriorityColor(task.priority),
             border: `1px solid ${getPriorityColor(task.priority)}50`,
@@ -1266,7 +1297,7 @@ function App() {
     return (
               <Box 
                 key={columnId} 
-                            sx={{ 
+                sx={{
                   flex: 1, 
                   minWidth: 300
                 }}
@@ -1292,16 +1323,16 @@ function App() {
                       '&:active': {
                         cursor: 'grabbing'
                       },
-                      '&:hover': {
+                  '&:hover': {
                         backgroundColor: '#f8fafb'
-                      }
-                    }}
-                  >
+                  }
+                }}
+              >
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 16 }} />
                       <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
                         {column.name}
-                    </Typography>
+              </Typography>
                       
                       {/* Expand/Collapse all blocks button for backlog column */}
                       {columnId === 'backlog' && (
@@ -1351,8 +1382,8 @@ function App() {
                           ).length}
                         </Typography>
               </Box>
-                    </Box>
-              </Box>
+          </Box>
+        </Box>
 
                                     <Box 
                     data-column-id={columnId}
@@ -1436,8 +1467,8 @@ function App() {
                               }}
                             >
                               <AddIcon sx={{ fontSize: 14 }} />
-                            </IconButton>
-                            
+        </IconButton>
+
                             {/* Delete button */}
                             <IconButton
                               size="small"
@@ -1456,7 +1487,7 @@ function App() {
                               }}
                             >
                               <DeleteIcon sx={{ fontSize: 14 }} />
-                            </IconButton>
+        </IconButton>
                             
                             {type.expandedByColumn?.[columnId] ? <ExpandLessIcon sx={{ color: '#6b7280' }} /> : <ExpandMoreIcon sx={{ color: '#6b7280' }} />}
                   </Box>
@@ -1635,7 +1666,7 @@ function App() {
     
     if (searchResults.length === 0) return null;
 
-                    return (
+    return (
       <Box sx={{
         position: 'absolute',
         top: '100%',
@@ -1659,7 +1690,7 @@ function App() {
           {sortedSearchResults.map((task) => (
                   <Box 
               key={`${task.id}-${task.blockType}`}
-                        sx={{
+                    sx={{ 
                 p: 2,
                 backgroundColor: '#f8fafb',
                 borderRadius: 1,
@@ -1701,7 +1732,7 @@ function App() {
                   <Chip
                     label={task.status}
                     size="small"
-                                  sx={{ 
+                            sx={{ 
                       backgroundColor: '#f1f5f8',
                       color: '#4a5568',
                       fontSize: '0.75rem',
@@ -1727,7 +1758,7 @@ function App() {
                   </Typography>
                               )}
                             </Box>
-                      </Box>
+                </Box>
               ))}
               </Box>
       </Box>
@@ -1847,7 +1878,7 @@ function App() {
                 <MenuItem value="done">done</MenuItem>
               </Select>
             </FormControl>
-              </Box>
+                  </Box>
           
           <Box sx={{ display: 'flex', gap: 2 }}>
             <FormControl fullWidth>
@@ -1937,8 +1968,8 @@ function App() {
               }}
             />
       </Box>
-        </Box>
-        
+              </Box>
+
         <Box sx={{ display: 'flex', gap: 2, mt: 4, justifyContent: 'flex-end' }}>
           <Button onClick={handleCloseTaskDialog} sx={{ color: '#6b7d8f' }}>
             cancel
@@ -1975,9 +2006,9 @@ function App() {
               const columnTasks = taskTypes.flatMap(type => 
                 type.tasks.filter(task => task.status === columnId)
               );
-              
-              return (
-                <Box
+
+                    return (
+                      <Box
                   key={columnId}
                   draggable
                   onDragStart={(e) => {
@@ -2004,7 +2035,7 @@ function App() {
                       }
                     }
                   }}
-                    sx={{ 
+                        sx={{
                     border: '1px solid #e2e8f0',
                     borderRadius: 1,
                     backgroundColor: '#ffffff',
@@ -2029,7 +2060,7 @@ function App() {
                     <DragIndicatorIcon sx={{ color: '#8fa3b3', fontSize: 16 }} />
                     
                     <Box 
-                      sx={{ 
+                              sx={{
                         width: 3, 
                         height: 16, 
                         backgroundColor: column.color, 
@@ -2055,16 +2086,33 @@ function App() {
                       </Box>
                     ) : (
                       <>
-                        <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
-                          {column.name}
-                        </Typography>
-                        <IconButton 
-                          size="small" 
-                          onClick={() => handleEditColumn(columnId, column.name)}
-                          sx={{ color: '#8fa3b3', '&:hover': { color: '#5a6c7d' } }}
-                        >
-                          <EditIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                          <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                            {column.name}
+                          </Typography>
+                          {column.fixed && (
+                            <Typography variant="caption" sx={{ 
+                              color: '#8fa3b3', 
+                              fontStyle: 'italic',
+                              backgroundColor: '#f1f5f8',
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                              fontSize: '0.7rem'
+                            }}>
+                              fixed
+                            </Typography>
+                          )}
+                        </Box>
+                        {!column.fixed && (
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleEditColumn(columnId, column.name)}
+                            sx={{ color: '#8fa3b3', '&:hover': { color: '#5a6c7d' } }}
+                          >
+                            <EditIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        )}
                       </>
                     )}
                     
@@ -2150,9 +2198,9 @@ function App() {
                 <Box
                   key={block.id}
                     sx={{
-                      display: 'flex', 
+                                display: 'flex',
                     justifyContent: 'space-between',
-                      alignItems: 'center', 
+                                alignItems: 'center',
                     p: 2,
                     backgroundColor: '#f8fafb',
                       borderRadius: 1,
@@ -2161,7 +2209,7 @@ function App() {
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Box
-                      sx={{
+                                  sx={{ 
                         width: 16,
                         height: 16,
                         backgroundColor: block.color,
@@ -2199,7 +2247,7 @@ function App() {
                     <Chip
                       label={`${block.tasks.length} tasks`}
                       size="small"
-                      sx={{
+                                  sx={{ 
                         backgroundColor: '#e2e8f0',
                         color: '#4a5568',
                         fontSize: '0.75rem'
@@ -2256,13 +2304,13 @@ function App() {
                           <DeleteIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                       </>
-                    )}
-                </Box>
-                </Box>
+                              )}
+                            </Box>
+                      </Box>
               ))}
       </Box>
-                  )}
-      </Box>
+                )}
+              </Box>
         
         {/* Add New Block */}
         <Box sx={{ 
@@ -2313,7 +2361,7 @@ function App() {
             >
               add block
             </Button>
-          </Box>
+      </Box>
           
           {/* Color Picker */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -2347,7 +2395,7 @@ function App() {
                   }}
                 />
               ))}
-            </Box>
+              </Box>
           </Box>
         </Box>
 
@@ -2479,7 +2527,7 @@ function App() {
                               }}
                             />
                           </Box>
-                        ))}
+                      ))}
                       </Box>
                   )}
                 </Box>
@@ -2504,6 +2552,464 @@ function App() {
       </Box>
     </Dialog>
   );
+
+  const renderWeeklyView = () => {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    
+    // Calculate the start of the selected week (Monday)
+    const getWeekStart = (year: number, week: number) => {
+      const startOfYear = new Date(year, 0, 1);
+      const daysToAdd = (week - 1) * 7;
+      const weekStart = new Date(startOfYear);
+      // Adjust to start on Monday (0 = Sunday, 1 = Monday, etc.)
+      const dayOfWeek = startOfYear.getDay();
+      const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert Sunday=0 to Monday=0
+      weekStart.setDate(startOfYear.getDate() + daysToAdd - mondayOffset);
+      return weekStart;
+    };
+    
+    const weekStart = getWeekStart(selectedYear, selectedWeek);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    
+    // Get all tasks
+    const allTasks = taskTypes.flatMap(type => type.tasks);
+    
+    // Filter tasks for the selected week
+    const weekTasks = allTasks.filter(task => {
+      if (!task.dueDate) return false;
+      const taskDate = new Date(task.dueDate);
+      return taskDate >= weekStart && taskDate <= weekEnd;
+    });
+    
+    // Group tasks by day
+    const tasksByDay: Record<string, Task[]> = {};
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(weekStart);
+      dayDate.setDate(weekStart.getDate() + i);
+      const dayKey = dayDate.toISOString().split('T')[0];
+      tasksByDay[dayKey] = weekTasks.filter(task => {
+        const taskDate = new Date(task.dueDate);
+        return taskDate.toDateString() === dayDate.toDateString();
+      });
+    }
+    
+    const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    
+    return (
+      <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
+        {/* Week Navigation */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 4 
+        }}>
+          <IconButton
+            onClick={() => {
+              if (selectedWeek === 1) {
+                setSelectedWeek(52);
+                setSelectedYear(selectedYear - 1);
+              } else {
+                setSelectedWeek(selectedWeek - 1);
+              }
+            }}
+            sx={{ 
+              color: '#4a5568',
+              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+            }}
+          >
+            <Box sx={{ fontSize: '1.5rem' }}>‹</Box>
+          </IconButton>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <Typography variant="h4" sx={{ 
+              color: '#4a5568', 
+              fontWeight: 600
+            }}>
+              week {selectedWeek}, {selectedYear} - weekly overview
+              </Typography>
+            <Typography variant="body2" sx={{ 
+              color: '#6b7d8f',
+              fontStyle: 'italic'
+            }}>
+              {weekStart.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - {weekEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </Typography>
+            
+            {(selectedWeek !== (() => {
+              const days = Math.floor((currentDate.getTime() - new Date(currentYear, 0, 1).getTime()) / (24 * 60 * 60 * 1000));
+              const dayOfWeek = new Date(currentYear, 0, 1).getDay();
+              const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+              return Math.ceil((days + mondayOffset + 1) / 7);
+            })()) && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  const days = Math.floor((currentDate.getTime() - new Date(currentYear, 0, 1).getTime()) / (24 * 60 * 60 * 1000));
+                  const dayOfWeek = new Date(currentYear, 0, 1).getDay();
+                  const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                  const currentWeek = Math.ceil((days + mondayOffset + 1) / 7);
+                  setSelectedWeek(currentWeek);
+                  setSelectedYear(currentYear);
+                }}
+                sx={{
+                  color: '#5a6c7d',
+                  borderColor: '#8fa3b3',
+                  fontSize: '0.75rem',
+                  '&:hover': {
+                    borderColor: '#5a6c7d',
+                    backgroundColor: 'rgba(90,108,125,0.05)'
+                  }
+                }}
+              >
+                go to current week
+              </Button>
+            )}
+          </Box>
+          
+          <IconButton
+            onClick={() => {
+              if (selectedWeek === 52) {
+                setSelectedWeek(1);
+                setSelectedYear(selectedYear + 1);
+              } else {
+                setSelectedWeek(selectedWeek + 1);
+              }
+            }}
+            sx={{ 
+              color: '#4a5568',
+              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+            }}
+          >
+            <Box sx={{ fontSize: '1.5rem' }}>›</Box>
+          </IconButton>
+        </Box>
+        
+        {/* Add New Task Button */}
+        <Box sx={{ mb: 3, textAlign: 'center' }}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setNewTask({
+                id: '',
+                title: '',
+                description: '',
+                priority: 'medium',
+                status: 'backlog',
+                type: taskTypes.length > 0 ? taskTypes[0].id : '',
+                createdAt: new Date(),
+                startDate: getTodayDate(),
+                dueDate: getTodayDate()
+              });
+              setSelectedTask(null);
+              setIsEditing(true);
+              setOpenTaskDialog(true);
+            }}
+            sx={{
+              backgroundColor: '#5a6c7d',
+              color: '#ffffff',
+              '&:hover': { backgroundColor: '#4a5568' },
+              px: 3,
+              py: 1.5
+            }}
+          >
+            add new task
+          </Button>
+        </Box>
+        
+        {/* Weekly Grid */}
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(7, 1fr)', 
+          gap: 2,
+          mb: 4
+        }}>
+          {dayNames.map((dayName, index) => {
+            const dayDate = new Date(weekStart);
+            dayDate.setDate(weekStart.getDate() + index);
+            const dayKey = dayDate.toISOString().split('T')[0];
+            const dayTasks = tasksByDay[dayKey] || [];
+            const isToday = dayDate.toDateString() === currentDate.toDateString();
+            
+            return (
+              <Box
+                key={dayName}
+                sx={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 2,
+                  p: 2,
+                  border: isToday ? '2px solid #5a6c7d' : '1px solid #e2e8f0',
+                  minHeight: 200,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+              >
+                {/* Day Header */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  mb: 2,
+                  pb: 1,
+                  borderBottom: '1px solid #e2e8f0'
+                }}>
+                  <Typography variant="subtitle2" sx={{ 
+                    color: '#4a5568', 
+                    fontWeight: 600,
+                    textTransform: 'capitalize'
+                  }}>
+                    {dayName}
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body2" sx={{ 
+                      color: isToday ? '#5a6c7d' : '#6b7d8f',
+                      fontWeight: isToday ? 600 : 400
+                    }}>
+                      {dayDate.getDate()}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNewTask({
+                          id: '',
+                          title: '',
+                          description: '',
+                          priority: 'medium',
+                          status: 'backlog',
+                          type: taskTypes.length > 0 ? taskTypes[0].id : '',
+                          createdAt: new Date(),
+                          startDate: dayDate,
+                          dueDate: dayDate
+                        });
+                        setSelectedTask(null);
+                        setIsEditing(true);
+                        setOpenTaskDialog(true);
+                      }}
+                      sx={{
+                        color: '#5a6c7d',
+                        width: 20,
+                        height: 20,
+                        '&:hover': {
+                          backgroundColor: 'rgba(90,108,125,0.1)'
+                        }
+                      }}
+                    >
+                      <AddIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                </Box>
+                
+                {/* Tasks for this day */}
+                  <Box
+                    sx={{
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: 1,
+                    minHeight: 100
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.style.backgroundColor = 'rgba(90,108,125,0.1)';
+                  }}
+                  onDragLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    
+                    const type = e.dataTransfer.getData('type');
+                    const taskId = e.dataTransfer.getData('taskId');
+                    
+                    if (type === 'task' && taskId) {
+                      // Update task due date to this day
+                      const updatedTask = { ...taskTypes.flatMap(t => t.tasks).find(t => t.id === taskId)! };
+                      updatedTask.dueDate = dayDate;
+                      
+                      // Update the task in its block
+                      setTaskTypes(prev => prev.map(block => ({
+                        ...block,
+                        tasks: block.tasks.map(t => t.id === taskId ? updatedTask : t)
+                      })));
+                    }
+                  }}
+                >
+                  {dayTasks.length === 0 ? (
+                    <Typography variant="body2" sx={{ 
+                      color: '#8fa3b3', 
+                      fontStyle: 'italic',
+                      textAlign: 'center',
+                      mt: 2
+                    }}>
+                      drop tasks here
+                    </Typography>
+                  ) : (
+                    dayTasks.map(task => (
+                      <Box
+                        key={task.id}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('type', 'task');
+                          e.dataTransfer.setData('taskId', task.id);
+                          e.dataTransfer.setData('sourceColumn', 'weekly');
+                        }}
+                        onClick={() => handleTaskClick(task)}
+                        sx={{
+                          backgroundColor: getStatusColor(task.status),
+                          color: '#ffffff',
+                          p: 1.5,
+                      borderRadius: 1,
+                          cursor: 'pointer',
+                          fontSize: '0.875rem',
+                          position: 'relative',
+                          '&:hover': {
+                            opacity: 0.8,
+                            transform: 'translateY(-1px)',
+                            transition: 'all 0.2s'
+                          }
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ 
+                          fontWeight: 600,
+                          mb: 0.5,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {task.title}
+                        </Typography>
+                        <Typography variant="caption" sx={{ 
+                          opacity: 0.9,
+                          display: 'block',
+                          mb: 1
+                        }}>
+                          {task.type}
+                        </Typography>
+                        
+                        {/* Action buttons */}
+                        <Box sx={{ 
+                          display: 'flex', 
+                          gap: 0.5, 
+                          justifyContent: 'flex-end',
+                          position: 'absolute',
+                          top: 4,
+                          right: 4
+                        }}>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMarkTaskDone(task.id);
+                            }}
+                            sx={{
+                              color: '#ffffff',
+                              backgroundColor: 'rgba(255,255,255,0.2)',
+                              width: 20,
+                              height: 20,
+                              '&:hover': {
+                                backgroundColor: 'rgba(255,255,255,0.3)'
+                              }
+                            }}
+                          >
+                            <CheckIcon sx={{ fontSize: 12 }} />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteTask(task.id);
+                            }}
+                            sx={{
+                              color: '#ffffff',
+                              backgroundColor: 'rgba(255,255,255,0.2)',
+                              width: 20,
+                              height: 20,
+                              '&:hover': {
+                                backgroundColor: 'rgba(255,255,255,0.3)'
+                              }
+                            }}
+                          >
+                            <DeleteIcon sx={{ fontSize: 12 }} />
+                          </IconButton>
+                </Box>
+                      </Box>
+                    ))
+                  )}
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+        
+        {/* Weekly Summary */}
+        <Box sx={{ 
+          backgroundColor: '#ffffff', 
+          borderRadius: 2, 
+          p: 3,
+          border: '1px solid #e2e8f0'
+        }}>
+          <Typography variant="h6" sx={{ 
+            color: '#4a5568', 
+            mb: 2, 
+            fontWeight: 600 
+          }}>
+            weekly summary
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#5a6c7d', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                total tasks: {weekTasks.length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#48bb78', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                done: {weekTasks.filter(t => t.status === 'done').length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#ed8936', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                in progress: {weekTasks.filter(t => t.status === 'in-progress').length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#e53e3e', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                overdue: {weekTasks.filter(t => {
+                  const taskDate = new Date(t.dueDate);
+                  return taskDate < currentDate && t.status !== 'done';
+                }).length}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
 
   const renderMonthlyView = () => {
     const currentDate = new Date();
@@ -2550,9 +3056,9 @@ function App() {
       <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
         {/* Month Navigation */}
         <Box sx={{ 
-          display: 'flex', 
+                      display: 'flex', 
           justifyContent: 'space-between', 
-          alignItems: 'center', 
+                      alignItems: 'center', 
           mb: 4 
         }}>
           <IconButton
@@ -2578,7 +3084,7 @@ function App() {
               fontWeight: 600
             }}>
               {monthNames[displayMonth]} {displayYear} - monthly overview
-            </Typography>
+                    </Typography>
             
             {(displayMonth !== currentMonth || displayYear !== currentYear) && (
               <Button
@@ -2601,8 +3107,8 @@ function App() {
                 go to current month
               </Button>
             )}
-          </Box>
-          
+                  </Box>
+                  
           <IconButton
             onClick={() => {
               if (displayMonth === 11) {
@@ -2612,7 +3118,7 @@ function App() {
                 setSelectedMonth(displayMonth + 1);
               }
             }}
-            sx={{ 
+                            sx={{ 
               color: '#4a5568',
               '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
             }}
@@ -2800,7 +3306,7 @@ function App() {
                             zIndex: 1
                           }}>
                             {task.status}
-              </Box>
+                </Box>
                         )}
       </Box>
     );
@@ -2853,10 +3359,10 @@ function App() {
                 fontSize: '0.875rem'
               }}>
                 {day}
-              </Box>
+                </Box>
             ))}
-          </Box>
-          
+              </Box>
+
           {/* Calendar Grid */}
           <Box sx={{ 
             display: 'grid', 
@@ -2916,7 +3422,7 @@ function App() {
                       cursor: 'pointer'
                     }} onClick={() => handleTaskClick(task)}>
                       {task.title}
-                    </Box>
+                </Box>
                   ))}
                   
                   {dayTasks.length > 3 && (
@@ -2932,8 +3438,8 @@ function App() {
                 </Box>
               );
             })}
-          </Box>
-        </Box>
+                </Box>
+              </Box>
       </Box>
     );
   };
@@ -3019,7 +3525,7 @@ function App() {
                       color: '#6b7d8f'
                     }}>
                       {day}
-                </Box>
+      </Box>
               ))}
                   
                   {/* Empty cells for days before month starts */}
@@ -3086,16 +3592,18 @@ function App() {
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f8fafb' }}>
       {renderMainHeader()}
-              {currentPage === 'yearly' ? (
+                      {currentPage === 'yearly' ? (
           renderYearlyView()
         ) : currentPage === 'monthly' ? (
           renderMonthlyView()
+        ) : currentPage === 'weekly' ? (
+          renderWeeklyView()
         ) : (
-        <>
-          {renderKanbanHeader()}
-          {renderKanbanBoard()}
-        </>
-      )}
+          <>
+            {renderKanbanHeader()}
+            {renderKanbanBoard()}
+          </>
+        )}
       {renderTaskDialog()}
       {renderBlocksDialog()}
       {renderColumnsDialog()}
