@@ -57,7 +57,8 @@ interface Task {
   status: 'backlog' | 'to-do' | 'in-progress' | 'done';
   type: string;
   createdAt: Date;
-  dueDate?: Date;
+  startDate: Date;
+  dueDate: Date;
 }
 
 interface TaskType {
@@ -322,12 +323,13 @@ function App() {
     status: 'backlog',
     type: '',
     createdAt: new Date(),
+    startDate: getTodayDate(),
     dueDate: getTodayDate()
   });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
   const [backlogExpanded, setBacklogExpanded] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban'>('kanban');
+  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly'>('kanban');
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, blockId: string, blockName: string, columnId?: string}>({
     open: false,
     blockId: '',
@@ -339,6 +341,9 @@ function App() {
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
+  const [selectedBlockColor, setSelectedBlockColor] = useState('#5a6c7d');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(2025);
   const [moveTaskDialog, setMoveTaskDialog] = useState<{open: boolean, taskId: string, currentBlockName: string}>({
     open: false,
     taskId: '',
@@ -425,7 +430,8 @@ function App() {
       status: task.status,
       type: task.type,
       createdAt: task.createdAt,
-      dueDate: task.dueDate || new Date('2025-01-01')
+      startDate: task.startDate,
+      dueDate: task.dueDate
     });
     setIsEditing(true);
     setOpenTaskDialog(true);
@@ -443,6 +449,7 @@ function App() {
       status: newStatus,
       type: blockType || (taskTypes.length > 0 ? taskTypes[0].id : ''),
       createdAt: new Date(),
+      startDate: getTodayDate(),
       dueDate: getTodayDate()
     });
     setSelectedTask(null);
@@ -462,6 +469,7 @@ function App() {
       status: 'backlog',
       type: '',
       createdAt: new Date(),
+      startDate: getTodayDate(),
       dueDate: getTodayDate()
     });
   };
@@ -475,6 +483,7 @@ function App() {
         ...newTask,
         id: selectedTask.id,
         createdAt: selectedTask.createdAt,
+        startDate: newTask.startDate || getTodayDate(),
         dueDate: newTask.dueDate || getTodayDate()
       };
       
@@ -488,6 +497,7 @@ function App() {
         ...newTask,
         id: Date.now().toString(),
         createdAt: new Date(),
+        startDate: newTask.startDate || getTodayDate(),
         dueDate: newTask.dueDate || getTodayDate()
       };
       
@@ -596,7 +606,7 @@ function App() {
     const newBlock: TaskType = {
       id: Date.now().toString(),
       name: newTask.type,
-      color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
+      color: selectedBlockColor,
       tasks: [],
       expanded: true,
       expandedByColumn: columns.reduce((acc, col) => ({
@@ -607,6 +617,7 @@ function App() {
     
     setTaskTypes(prev => [...prev, newBlock]);
     setNewTask({ ...newTask, type: '' });
+    setSelectedBlockColor('#5a6c7d'); // Reset to default color
   };
 
   const handleEditBlock = (block: TaskType) => {
@@ -986,6 +997,20 @@ function App() {
           }}
         >
           kanban
+        </Button>
+        <Button
+          variant={currentPage === 'monthly' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('monthly')}
+          sx={{ 
+            backgroundColor: currentPage === 'monthly' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'monthly' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'monthly' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          monthly
         </Button>
       </Box>
       </Box>
@@ -1646,10 +1671,10 @@ function App() {
                   borderColor: '#8fa3b3'
                 }
               }}
-              onClick={() => {
-                handleTaskClick(task);
-                setSearchTerm('');
-              }}
+                              onClick={() => {
+                  handleTaskClick(task);
+                  setSearchTerm('');
+                }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                 <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
@@ -1849,6 +1874,37 @@ function App() {
                 ))}
               </Select>
             </FormControl>
+            
+            <TextField
+              label="start date"
+              type="date"
+              value={newTask.startDate ? newTask.startDate.toISOString().split('T')[0] : ''}
+              onChange={(e) => setNewTask({ ...newTask, startDate: new Date(e.target.value) })}
+              fullWidth
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#ffffff',
+                  color: '#4a5568',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  }
+                },
+                '& .MuiInputLabel-root': {
+                  color: '#6b7d8f',
+                  backgroundColor: '#ffffff',
+                  px: 0.5
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
+                }
+              }}
+            />
             
             <TextField
               label="due date"
@@ -2213,50 +2269,87 @@ function App() {
           pt: 2, 
           borderTop: '1px solid #e2e8f0',
           display: 'flex',
-          gap: 2,
-          alignItems: 'flex-end'
+          flexDirection: 'column',
+          gap: 2
         }}>
-          <TextField
-            label="block name"
-            value={newTask.type}
-            onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
-            placeholder="enter block name..."
-                    sx={{
-              flex: 1,
-              '& .MuiOutlinedInput-root': {
-                backgroundColor: '#ffffff',
-                color: '#4a5568',
-                borderColor: '#8fa3b3',
-                '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#5a6c7d'
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
+            <TextField
+              label="block name"
+              value={newTask.type}
+              onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
+              placeholder="enter block name..."
+              sx={{
+                flex: 1,
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#ffffff',
+                  color: '#4a5568',
+                  borderColor: '#8fa3b3',
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  }
                 },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#5a6c7d'
+                '& .MuiInputLabel-root': {
+                  color: '#6b7d8f'
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
                 }
-              },
-              '& .MuiInputLabel-root': {
-                color: '#6b7d8f'
-              },
-              '& .MuiInputBase-input': {
-                color: '#4a5568'
-              }
-            }}
-          />
+              }}
+            />
+            
+            <Button
+              variant="contained"
+              onClick={handleAddBlock}
+              disabled={!newTask.type.trim()}
+              sx={{ 
+                backgroundColor: '#5a6c7d',
+                color: '#ffffff',
+                '&:hover': { backgroundColor: '#4a5568' },
+                '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
+              }}
+            >
+              add block
+            </Button>
+          </Box>
           
-          <Button
-            variant="contained"
-            onClick={handleAddBlock}
-            disabled={!newTask.type.trim()}
-            sx={{ 
-              backgroundColor: '#5a6c7d',
-              color: '#ffffff',
-              '&:hover': { backgroundColor: '#4a5568' },
-              '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
-            }}
-          >
-            add block
-          </Button>
-              </Box>
+          {/* Color Picker */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
+              block color
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {[
+                '#5a6c7d', '#6b7d8f', '#8fa3b3', '#b3c5d1', // Blues
+                '#e53e3e', '#f56565', '#fc8181', '#fed7d7', // Reds
+                '#38a169', '#48bb78', '#68d391', '#9ae6b4', // Greens
+                '#d69e2e', '#ed8936', '#f6ad55', '#fbd38d', // Yellows/Oranges
+                '#805ad5', '#9f7aea', '#b794f4', '#d6bcfa', // Purples
+                '#319795', '#38b2ac', '#4fd1c7', '#81e6d9'  // Teals
+              ].map((color) => (
+                <Box
+                  key={color}
+                  onClick={() => setSelectedBlockColor(color)}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    backgroundColor: color,
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    border: selectedBlockColor === color ? '3px solid #4a5568' : '2px solid #e2e8f0',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      transform: 'scale(1.1)',
+                      borderColor: '#4a5568'
+                    }
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+        </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
           <Button onClick={() => setOpenBlocksDialog(false)} sx={{ color: '#6b7d8f' }}>
@@ -2388,8 +2481,8 @@ function App() {
                           </Box>
                         ))}
                       </Box>
-                    )}
-                  </Box>
+                  )}
+                </Box>
                 </Collapse>
               </Box>
             );
@@ -2411,6 +2504,439 @@ function App() {
       </Box>
     </Dialog>
   );
+
+  const renderMonthlyView = () => {
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    
+    // Use selected month and year, or current if not set
+    const displayMonth = selectedMonth;
+    const displayYear = selectedYear;
+    
+    // Get all tasks with due dates
+    const allTasks = taskTypes.flatMap(type => 
+      type.tasks.filter(task => task.dueDate).map(task => ({
+        ...task,
+        blockName: type.name,
+        blockColor: type.color
+      }))
+    );
+    
+    // Filter tasks for selected month
+    const monthTasks = allTasks.filter(task => {
+      if (!task.dueDate) return false;
+      const taskDate = new Date(task.dueDate);
+      return taskDate.getMonth() === displayMonth && taskDate.getFullYear() === displayYear;
+    });
+    
+    // Sort tasks by due date
+    const sortedTasks = monthTasks.sort((a, b) => {
+      if (!a.dueDate || !b.dueDate) return 0;
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    });
+    
+    // Get month name
+    const monthNames = [
+      'january', 'february', 'march', 'april', 'may', 'june',
+      'july', 'august', 'september', 'october', 'november', 'december'
+    ];
+    
+    // Calculate days in month
+    const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate();
+    const firstDayOfMonth = new Date(displayYear, displayMonth, 1).getDay();
+    
+    return (
+      <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
+        {/* Month Navigation */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 4 
+        }}>
+          <IconButton
+            onClick={() => {
+              if (displayMonth === 0) {
+                setSelectedMonth(11);
+                setSelectedYear(displayYear - 1);
+              } else {
+                setSelectedMonth(displayMonth - 1);
+              }
+            }}
+            sx={{ 
+              color: '#4a5568',
+              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+            }}
+          >
+            <Box sx={{ fontSize: '1.5rem' }}>‹</Box>
+          </IconButton>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <Typography variant="h4" sx={{ 
+              color: '#4a5568', 
+              fontWeight: 600
+            }}>
+              {monthNames[displayMonth]} {displayYear} - monthly overview
+            </Typography>
+            
+            {(displayMonth !== currentMonth || displayYear !== currentYear) && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  setSelectedMonth(currentMonth);
+                  setSelectedYear(currentYear);
+                }}
+                sx={{
+                  color: '#5a6c7d',
+                  borderColor: '#8fa3b3',
+                  fontSize: '0.75rem',
+                  '&:hover': {
+                    borderColor: '#5a6c7d',
+                    backgroundColor: 'rgba(90,108,125,0.05)'
+                  }
+                }}
+              >
+                go to current month
+              </Button>
+            )}
+          </Box>
+          
+          <IconButton
+            onClick={() => {
+              if (displayMonth === 11) {
+                setSelectedMonth(0);
+                setSelectedYear(displayYear + 1);
+              } else {
+                setSelectedMonth(displayMonth + 1);
+              }
+            }}
+            sx={{ 
+              color: '#4a5568',
+              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+            }}
+          >
+            <Box sx={{ fontSize: '1.5rem' }}>›</Box>
+          </IconButton>
+        </Box>
+        
+        {/* Gantt Chart */}
+        <Box sx={{ 
+          backgroundColor: '#ffffff', 
+          borderRadius: 2, 
+          p: 3, 
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          mb: 4
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Typography variant="h6" sx={{ 
+              color: '#4a5568', 
+              fontWeight: 500 
+            }}>
+              gantt chart
+            </Typography>
+            <Button
+              variant="contained"
+              onClick={() => handleAddTask()}
+              sx={{ 
+                backgroundColor: '#5a6c7d',
+                '&:hover': { backgroundColor: '#4a5568' }
+              }}
+            >
+              add new task
+            </Button>
+                </Box>
+          
+          {/* Timeline Header */}
+          <Box sx={{ 
+            display: 'grid', 
+            gridTemplateColumns: '200px repeat(31, 1fr)', 
+            gap: 1, 
+            mb: 2,
+            borderBottom: '2px solid #e2e8f0'
+          }}>
+            <Box sx={{ p: 1, fontWeight: 600, color: '#4a5568' }}>
+              task / project
+            </Box>
+            {Array.from({ length: daysInMonth }, (_, i) => (
+              <Box key={i + 1} sx={{ 
+                p: 1, 
+                textAlign: 'center', 
+                fontSize: '0.75rem',
+                color: '#6b7d8f',
+                borderLeft: '1px solid #f1f5f8'
+              }}>
+                {i + 1}
+              </Box>
+            ))}
+              </Box>
+
+          {/* Gantt Bars */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {sortedTasks.map((task, index) => {
+              if (!task.dueDate) return null;
+              const taskDate = new Date(task.dueDate);
+              const dayOfMonth = taskDate.getDate();
+              const isOverdue = taskDate < new Date() && task.status !== 'done';
+              const isToday = taskDate.toDateString() === new Date().toDateString();
+             
+              return (
+                <Box key={`${task.id}-${index}`} sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '200px repeat(31, 1fr)', 
+                  gap: 1,
+                  alignItems: 'center',
+                  minHeight: 40,
+                  '&:hover': { backgroundColor: '#f8fafb' }
+                }}>
+                  {/* Task Info */}
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 1,
+                    p: 1
+                  }}>
+                    <Box 
+                      sx={{ 
+                        width: 12, 
+                        height: 12, 
+                        borderRadius: '50%', 
+                        backgroundColor: task.blockColor 
+                      }} 
+                    />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="subtitle2" sx={{ 
+                        color: '#4a5568', 
+                        fontWeight: 500,
+                        fontSize: '0.875rem',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        cursor: 'pointer'
+                      }} onClick={() => handleTaskClick(task)}>
+                        {task.title}
+                      </Typography>
+                      <Typography variant="caption" sx={{ 
+                        color: '#6b7d8f',
+                        fontSize: '0.75rem'
+                      }}>
+                        {task.blockName}
+                      </Typography>
+                </Box>
+                </Box>
+                  
+                  {/* Timeline Cells */}
+                  {Array.from({ length: daysInMonth }, (_, i) => {
+                    const day = i + 1;
+                    const currentDate = new Date(displayYear, displayMonth, day);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                                         // Check if this day is within the task timeline
+                     const taskStartDate = new Date(task.startDate);
+                     taskStartDate.setHours(0, 0, 0, 0);
+                     const isInTaskTimeline = currentDate >= taskStartDate && currentDate <= taskDate;
+                     const isTaskStart = currentDate.getTime() === taskStartDate.getTime();
+                    const isTaskEnd = currentDate.getTime() === taskDate.getTime();
+                    const isOverdue = taskDate < today && task.status !== 'done';
+                    const isToday = currentDate.toDateString() === new Date().toDateString();
+                    
+                                         // Determine background color - only color days within task timeline
+                     let backgroundColor = '#ffffff';
+                     if (isInTaskTimeline) {
+                       if (isOverdue) {
+                         backgroundColor = '#fed7d7'; // Red for overdue
+                       } else if (task.status === 'done') {
+                         backgroundColor = '#c6f6d5'; // Green for done
+                       } else {
+                         backgroundColor = getStatusColor(task.status);
+                       }
+                     }
+                     // All other days remain white
+                    
+                    return (
+                      <Box key={day} sx={{ 
+                        height: 24,
+                        border: '1px solid #f1f5f8',
+                        borderRadius: 1,
+                        backgroundColor: backgroundColor,
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        {isTaskStart && (
+                          <Box sx={{
+                            position: 'absolute',
+                            top: -8,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            backgroundColor: '#4a5568',
+                            color: '#ffffff',
+                            fontSize: '0.625rem',
+                            px: 0.5,
+                            py: 0.25,
+                            borderRadius: 0.5,
+                            whiteSpace: 'nowrap',
+                            zIndex: 1
+                          }}>
+                            start
+                </Box>
+                        )}
+                        {isTaskEnd && (
+                          <Box sx={{
+                            position: 'absolute',
+                            top: -8,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            backgroundColor: '#4a5568',
+                            color: '#ffffff',
+                            fontSize: '0.625rem',
+                            px: 0.5,
+                            py: 0.25,
+                            borderRadius: 0.5,
+                            whiteSpace: 'nowrap',
+                            zIndex: 1
+                          }}>
+                            {task.status}
+              </Box>
+                        )}
+      </Box>
+    );
+                  })}
+                </Box>
+              );
+            })}
+          </Box>
+          
+          {sortedTasks.length === 0 && (
+            <Box sx={{ 
+              textAlign: 'center', 
+              py: 4, 
+              color: '#6b7d8f',
+              fontStyle: 'italic'
+            }}>
+              no tasks with due dates for this month
+            </Box>
+          )}
+        </Box>
+        
+        {/* Calendar Grid */}
+        <Box sx={{ 
+          backgroundColor: '#ffffff', 
+          borderRadius: 2, 
+          p: 3, 
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)' 
+        }}>
+          <Typography variant="h6" sx={{ 
+            color: '#4a5568', 
+            mb: 3, 
+            fontWeight: 500 
+          }}>
+            calendar view
+          </Typography>
+          
+          {/* Day Names */}
+          <Box sx={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(7, 1fr)', 
+            gap: 1, 
+            mb: 1 
+          }}>
+            {['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map(day => (
+              <Box key={day} sx={{ 
+                p: 1, 
+                textAlign: 'center', 
+                fontWeight: 600, 
+                color: '#4a5568',
+                fontSize: '0.875rem'
+              }}>
+                {day}
+              </Box>
+            ))}
+          </Box>
+          
+          {/* Calendar Grid */}
+          <Box sx={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(7, 1fr)', 
+            gap: 1 
+          }}>
+            {/* Empty cells for days before month starts */}
+            {Array.from({ length: firstDayOfMonth }, (_, i) => (
+              <Box key={`empty-${i}`} sx={{ 
+                height: 80, 
+                backgroundColor: '#f7fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 1
+              }} />
+            ))}
+            
+            {/* Days of the month */}
+            {Array.from({ length: daysInMonth }, (_, i) => {
+              const day = i + 1;
+              const currentDate = new Date(displayYear, displayMonth, day);
+              const isToday = currentDate.toDateString() === new Date().toDateString();
+              const dayTasks = monthTasks.filter(task => {
+                if (!task.dueDate) return false;
+                const taskDate = new Date(task.dueDate);
+                return taskDate.getDate() === day;
+              });
+              
+    return (
+                <Box key={day} sx={{ 
+                  height: 80,
+                  backgroundColor: isToday ? '#ebf8ff' : '#ffffff',
+                  border: isToday ? '2px solid #3182ce' : '1px solid #e2e8f0',
+                  borderRadius: 1,
+                  p: 1,
+                  position: 'relative'
+                }}>
+                  <Typography variant="caption" sx={{ 
+                    color: isToday ? '#3182ce' : '#4a5568',
+                    fontWeight: isToday ? 600 : 400,
+                    fontSize: '0.875rem'
+                  }}>
+                    {day}
+        </Typography>
+                  
+                  {/* Task indicators */}
+                  {dayTasks.slice(0, 3).map((task, index) => (
+                    <Box key={task.id} sx={{ 
+                      mt: 0.5,
+                      p: 0.5,
+                      backgroundColor: getStatusColor(task.status),
+                      color: '#ffffff',
+                      borderRadius: 0.5,
+                      fontSize: '0.625rem',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer'
+                    }} onClick={() => handleTaskClick(task)}>
+                      {task.title}
+                    </Box>
+                  ))}
+                  
+                  {dayTasks.length > 3 && (
+                    <Typography variant="caption" sx={{ 
+                      color: '#6b7d8f',
+                      fontSize: '0.625rem',
+                      mt: 0.5,
+                      display: 'block'
+                    }}>
+                      +{dayTasks.length - 3} more
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
 
   const renderYearlyView = () => {
     const months = [
@@ -2557,12 +3083,14 @@ function App() {
     );
   };
 
-    return (
+  return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f8fafb' }}>
       {renderMainHeader()}
-      {currentPage === 'yearly' ? (
-        renderYearlyView()
-      ) : (
+              {currentPage === 'yearly' ? (
+          renderYearlyView()
+        ) : currentPage === 'monthly' ? (
+          renderMonthlyView()
+        ) : (
         <>
           {renderKanbanHeader()}
           {renderKanbanBoard()}
