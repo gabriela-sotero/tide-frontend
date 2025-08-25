@@ -57,7 +57,8 @@ interface Task {
   status: 'backlog' | 'to-do' | 'in-progress' | 'done';
   type: string;
   createdAt: Date;
-  dueDate?: Date;
+  startDate: Date;
+  dueDate: Date;
 }
 
 interface TaskType {
@@ -322,6 +323,7 @@ function App() {
     status: 'backlog',
     type: '',
     createdAt: new Date(),
+    startDate: getTodayDate(),
     dueDate: getTodayDate()
   });
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -339,6 +341,9 @@ function App() {
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
+  const [selectedBlockColor, setSelectedBlockColor] = useState('#5a6c7d');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(2025);
   const [moveTaskDialog, setMoveTaskDialog] = useState<{open: boolean, taskId: string, currentBlockName: string}>({
     open: false,
     taskId: '',
@@ -425,7 +430,8 @@ function App() {
       status: task.status,
       type: task.type,
       createdAt: task.createdAt,
-      dueDate: task.dueDate || new Date('2025-01-01')
+      startDate: task.startDate,
+      dueDate: task.dueDate
     });
     setIsEditing(true);
     setOpenTaskDialog(true);
@@ -443,6 +449,7 @@ function App() {
       status: newStatus,
       type: blockType || (taskTypes.length > 0 ? taskTypes[0].id : ''),
       createdAt: new Date(),
+      startDate: getTodayDate(),
       dueDate: getTodayDate()
     });
     setSelectedTask(null);
@@ -462,6 +469,7 @@ function App() {
       status: 'backlog',
       type: '',
       createdAt: new Date(),
+      startDate: getTodayDate(),
       dueDate: getTodayDate()
     });
   };
@@ -475,6 +483,7 @@ function App() {
         ...newTask,
         id: selectedTask.id,
         createdAt: selectedTask.createdAt,
+        startDate: newTask.startDate || getTodayDate(),
         dueDate: newTask.dueDate || getTodayDate()
       };
       
@@ -488,6 +497,7 @@ function App() {
         ...newTask,
         id: Date.now().toString(),
         createdAt: new Date(),
+        startDate: newTask.startDate || getTodayDate(),
         dueDate: newTask.dueDate || getTodayDate()
       };
       
@@ -596,7 +606,7 @@ function App() {
     const newBlock: TaskType = {
       id: Date.now().toString(),
       name: newTask.type,
-      color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
+      color: selectedBlockColor,
       tasks: [],
       expanded: true,
       expandedByColumn: columns.reduce((acc, col) => ({
@@ -607,6 +617,7 @@ function App() {
     
     setTaskTypes(prev => [...prev, newBlock]);
     setNewTask({ ...newTask, type: '' });
+    setSelectedBlockColor('#5a6c7d'); // Reset to default color
   };
 
   const handleEditBlock = (block: TaskType) => {
@@ -1865,6 +1876,37 @@ function App() {
             </FormControl>
             
             <TextField
+              label="start date"
+              type="date"
+              value={newTask.startDate ? newTask.startDate.toISOString().split('T')[0] : ''}
+              onChange={(e) => setNewTask({ ...newTask, startDate: new Date(e.target.value) })}
+              fullWidth
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#ffffff',
+                  color: '#4a5568',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  }
+                },
+                '& .MuiInputLabel-root': {
+                  color: '#6b7d8f',
+                  backgroundColor: '#ffffff',
+                  px: 0.5
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
+                }
+              }}
+            />
+            
+            <TextField
               label="due date"
               type="date"
               value={newTask.dueDate ? newTask.dueDate.toISOString().split('T')[0] : ''}
@@ -2227,50 +2269,87 @@ function App() {
           pt: 2, 
           borderTop: '1px solid #e2e8f0',
           display: 'flex',
-          gap: 2,
-          alignItems: 'flex-end'
+          flexDirection: 'column',
+          gap: 2
         }}>
-          <TextField
-            label="block name"
-            value={newTask.type}
-            onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
-            placeholder="enter block name..."
-                    sx={{
-              flex: 1,
-              '& .MuiOutlinedInput-root': {
-                backgroundColor: '#ffffff',
-                color: '#4a5568',
-                borderColor: '#8fa3b3',
-                '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#5a6c7d'
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
+            <TextField
+              label="block name"
+              value={newTask.type}
+              onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
+              placeholder="enter block name..."
+              sx={{
+                flex: 1,
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#ffffff',
+                  color: '#4a5568',
+                  borderColor: '#8fa3b3',
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  }
                 },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#5a6c7d'
+                '& .MuiInputLabel-root': {
+                  color: '#6b7d8f'
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
                 }
-              },
-              '& .MuiInputLabel-root': {
-                color: '#6b7d8f'
-              },
-              '& .MuiInputBase-input': {
-                color: '#4a5568'
-              }
-            }}
-          />
+              }}
+            />
+            
+            <Button
+              variant="contained"
+              onClick={handleAddBlock}
+              disabled={!newTask.type.trim()}
+              sx={{ 
+                backgroundColor: '#5a6c7d',
+                color: '#ffffff',
+                '&:hover': { backgroundColor: '#4a5568' },
+                '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
+              }}
+            >
+              add block
+            </Button>
+          </Box>
           
-          <Button
-            variant="contained"
-            onClick={handleAddBlock}
-            disabled={!newTask.type.trim()}
-            sx={{ 
-              backgroundColor: '#5a6c7d',
-              color: '#ffffff',
-              '&:hover': { backgroundColor: '#4a5568' },
-              '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
-            }}
-          >
-            add block
-          </Button>
-              </Box>
+          {/* Color Picker */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
+              block color
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {[
+                '#5a6c7d', '#6b7d8f', '#8fa3b3', '#b3c5d1', // Blues
+                '#e53e3e', '#f56565', '#fc8181', '#fed7d7', // Reds
+                '#38a169', '#48bb78', '#68d391', '#9ae6b4', // Greens
+                '#d69e2e', '#ed8936', '#f6ad55', '#fbd38d', // Yellows/Oranges
+                '#805ad5', '#9f7aea', '#b794f4', '#d6bcfa', // Purples
+                '#319795', '#38b2ac', '#4fd1c7', '#81e6d9'  // Teals
+              ].map((color) => (
+                <Box
+                  key={color}
+                  onClick={() => setSelectedBlockColor(color)}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    backgroundColor: color,
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    border: selectedBlockColor === color ? '3px solid #4a5568' : '2px solid #e2e8f0',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      transform: 'scale(1.1)',
+                      borderColor: '#4a5568'
+                    }
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+        </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
           <Button onClick={() => setOpenBlocksDialog(false)} sx={{ color: '#6b7d8f' }}>
@@ -2431,6 +2510,10 @@ function App() {
     const currentMonth = currentDate.getMonth();
     const currentYear = currentDate.getFullYear();
     
+    // Use selected month and year, or current if not set
+    const displayMonth = selectedMonth;
+    const displayYear = selectedYear;
+    
     // Get all tasks with due dates
     const allTasks = taskTypes.flatMap(type => 
       type.tasks.filter(task => task.dueDate).map(task => ({
@@ -2440,11 +2523,11 @@ function App() {
       }))
     );
     
-    // Filter tasks for current month
+    // Filter tasks for selected month
     const monthTasks = allTasks.filter(task => {
       if (!task.dueDate) return false;
       const taskDate = new Date(task.dueDate);
-      return taskDate.getMonth() === currentMonth && taskDate.getFullYear() === currentYear;
+      return taskDate.getMonth() === displayMonth && taskDate.getFullYear() === displayYear;
     });
     
     // Sort tasks by due date
@@ -2460,19 +2543,83 @@ function App() {
     ];
     
     // Calculate days in month
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+    const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate();
+    const firstDayOfMonth = new Date(displayYear, displayMonth, 1).getDay();
     
     return (
       <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
-        <Typography variant="h4" sx={{ 
-          color: '#4a5568', 
-          mb: 4, 
-          fontWeight: 600,
-          textAlign: 'center'
+        {/* Month Navigation */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 4 
         }}>
-          {monthNames[currentMonth]} {currentYear} - monthly overview
-        </Typography>
+          <IconButton
+            onClick={() => {
+              if (displayMonth === 0) {
+                setSelectedMonth(11);
+                setSelectedYear(displayYear - 1);
+              } else {
+                setSelectedMonth(displayMonth - 1);
+              }
+            }}
+            sx={{ 
+              color: '#4a5568',
+              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+            }}
+          >
+            <Box sx={{ fontSize: '1.5rem' }}>‹</Box>
+          </IconButton>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <Typography variant="h4" sx={{ 
+              color: '#4a5568', 
+              fontWeight: 600
+            }}>
+              {monthNames[displayMonth]} {displayYear} - monthly overview
+            </Typography>
+            
+            {(displayMonth !== currentMonth || displayYear !== currentYear) && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  setSelectedMonth(currentMonth);
+                  setSelectedYear(currentYear);
+                }}
+                sx={{
+                  color: '#5a6c7d',
+                  borderColor: '#8fa3b3',
+                  fontSize: '0.75rem',
+                  '&:hover': {
+                    borderColor: '#5a6c7d',
+                    backgroundColor: 'rgba(90,108,125,0.05)'
+                  }
+                }}
+              >
+                go to current month
+              </Button>
+            )}
+          </Box>
+          
+          <IconButton
+            onClick={() => {
+              if (displayMonth === 11) {
+                setSelectedMonth(0);
+                setSelectedYear(displayYear + 1);
+              } else {
+                setSelectedMonth(displayMonth + 1);
+              }
+            }}
+            sx={{ 
+              color: '#4a5568',
+              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+            }}
+          >
+            <Box sx={{ fontSize: '1.5rem' }}>›</Box>
+          </IconButton>
+        </Box>
         
         {/* Gantt Chart */}
         <Box sx={{ 
@@ -2582,13 +2729,15 @@ function App() {
                   {/* Timeline Cells */}
                   {Array.from({ length: daysInMonth }, (_, i) => {
                     const day = i + 1;
-                    const currentDate = new Date(currentYear, currentMonth, day);
+                    const currentDate = new Date(displayYear, displayMonth, day);
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     
-                    // Check if this day is within the task timeline
-                    const isInTaskTimeline = currentDate >= today && currentDate <= taskDate;
-                    const isTaskStart = currentDate.getTime() === today.getTime();
+                                         // Check if this day is within the task timeline
+                     const taskStartDate = new Date(task.startDate);
+                     taskStartDate.setHours(0, 0, 0, 0);
+                     const isInTaskTimeline = currentDate >= taskStartDate && currentDate <= taskDate;
+                     const isTaskStart = currentDate.getTime() === taskStartDate.getTime();
                     const isTaskEnd = currentDate.getTime() === taskDate.getTime();
                     const isOverdue = taskDate < today && task.status !== 'done';
                     const isToday = currentDate.toDateString() === new Date().toDateString();
@@ -2727,7 +2876,7 @@ function App() {
             {/* Days of the month */}
             {Array.from({ length: daysInMonth }, (_, i) => {
               const day = i + 1;
-              const currentDate = new Date(currentYear, currentMonth, day);
+              const currentDate = new Date(displayYear, displayMonth, day);
               const isToday = currentDate.toDateString() === new Date().toDateString();
               const dayTasks = monthTasks.filter(task => {
                 if (!task.dueDate) return false;
