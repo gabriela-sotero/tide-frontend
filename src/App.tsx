@@ -349,11 +349,6 @@ function App() {
   const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
   const [selectedBlockColor, setSelectedBlockColor] = useState('#5a6c7d');
-  const [editingTaskDates, setEditingTaskDates] = useState<{
-    taskId: string;
-    startDate: Date;
-    dueDate: Date;
-  } | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(2025);
   const [selectedWeek, setSelectedWeek] = useState(() => {
@@ -875,45 +870,28 @@ function App() {
     if (newStartDate > newDueDate) {
       if (isStartDate) {
         // If clicking start date and it's after due date, adjust due date
-        setEditingTaskDates({
-          taskId: task.id,
-          startDate: clickedDate,
-          dueDate: clickedDate
-        });
+        const updatedTask = { ...task, startDate: clickedDate, dueDate: clickedDate };
+        updateTaskInState(updatedTask);
       } else {
         // If clicking due date and it's before start date, adjust start date
-        setEditingTaskDates({
-          taskId: task.id,
-          startDate: clickedDate,
-          dueDate: clickedDate
-        });
+        const updatedTask = { ...task, startDate: clickedDate, dueDate: clickedDate };
+        updateTaskInState(updatedTask);
       }
     } else {
-      setEditingTaskDates({
-        taskId: task.id,
-        startDate: newStartDate,
-        dueDate: newDueDate
-      });
+      const updatedTask = { ...task, startDate: newStartDate, dueDate: newDueDate };
+      updateTaskInState(updatedTask);
     }
   };
 
-  const handleSaveGanttDates = () => {
-    if (!editingTaskDates) return;
-    
+
+
+  const updateTaskInState = (updatedTask: Task) => {
     setTaskTypes(prev => prev.map(type => ({
       ...type,
       tasks: type.tasks.map(task => 
-        task.id === editingTaskDates.taskId 
-          ? { ...task, startDate: editingTaskDates.startDate, dueDate: editingTaskDates.dueDate }
-          : task
+        task.id === updatedTask.id ? updatedTask : task
       )
     })));
-    
-    setEditingTaskDates(null);
-  };
-
-  const handleCancelGanttDates = () => {
-    setEditingTaskDates(null);
   };
 
   const handleSaveBlock = () => {
@@ -1819,107 +1797,7 @@ function App() {
     );
   };
 
-  const renderGanttDatesDialog = () => {
-    if (!editingTaskDates) return null;
-    
-    const task = taskTypes.flatMap(type => type.tasks).find(t => t.id === editingTaskDates.taskId);
-    if (!task) return null;
-    
-    return (
-      <Dialog 
-        open={!!editingTaskDates} 
-        onClose={handleCancelGanttDates}
-        maxWidth="sm"
-        fullWidth
-      >
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ color: '#4a5568', mb: 2, fontWeight: 600 }}>
-            adjust task timeline
-          </Typography>
-          
-          <Typography variant="body1" sx={{ color: '#6b7d8f', mb: 3 }}>
-            adjust the start and due dates for "{task.title}":
-          </Typography>
-          
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
-            <TextField
-              label="start date"
-              type="date"
-              value={editingTaskDates.startDate.toISOString().split('T')[0]}
-              onChange={(e) => setEditingTaskDates(prev => 
-                prev ? { ...prev, startDate: new Date(e.target.value) } : null
-              )}
-              fullWidth
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': {
-                    borderColor: '#e2e8f0'
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#8fa3b3'
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#5a6c7d'
-                  }
-                }
-              }}
-            />
-            
-            <TextField
-              label="due date"
-              type="date"
-              value={editingTaskDates.dueDate.toISOString().split('T')[0]}
-              onChange={(e) => setEditingTaskDates(prev => 
-                prev ? { ...prev, dueDate: new Date(e.target.value) } : null
-              )}
-              fullWidth
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': {
-                    borderColor: '#e2e8f0'
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#8fa3b3'
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#5a6c7d'
-                  }
-                }
-              }}
-            />
-          </Box>
-          
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-            <Button
-              variant="outlined"
-              onClick={handleCancelGanttDates}
-              sx={{
-                color: '#6b7d8f',
-                borderColor: '#8fa3b3',
-                '&:hover': {
-                  borderColor: '#5a6c7d',
-                  backgroundColor: '#f1f5f8'
-                }
-              }}
-            >
-              cancel
-            </Button>
-            <Button
-              variant="contained"
-              onClick={handleSaveGanttDates}
-              sx={{
-                backgroundColor: '#5a6c7d',
-                color: '#ffffff',
-                '&:hover': { backgroundColor: '#4a5568' }
-              }}
-            >
-              save changes
-            </Button>
-          </Box>
-        </Box>
-      </Dialog>
-    );
-  };
+
 
   const renderTaskDialog = () => (
     <Dialog open={openTaskDialog} onClose={handleCloseTaskDialog} maxWidth="sm" fullWidth>
@@ -3402,8 +3280,7 @@ function App() {
                                           const isTaskStart = currentDate.getTime() === taskStartDate.getTime();
                      const isTaskEnd = currentDate.getTime() === taskDate.getTime();
                      
-                     // Check if this task is being edited
-                     const isEditingThisTask = editingTaskDates?.taskId === task.id;
+
                     const isOverdue = taskDate < today && task.status !== 'done';
                     const isToday = currentDate.toDateString() === new Date().toDateString();
                     
@@ -3424,9 +3301,15 @@ function App() {
                       <Box 
                         key={day} 
                         onClick={() => {
-                          if (isTaskStart) {
+                          // Determine if this is closer to start or end
+                          const startDistance = Math.abs(currentDate.getTime() - taskStartDate.getTime());
+                          const endDistance = Math.abs(currentDate.getTime() - taskDate.getTime());
+                          
+                          if (startDistance <= endDistance) {
+                            // Closer to start date
                             handleGanttDateClick(task, true, currentDate);
-                          } else if (isTaskEnd) {
+                          } else {
+                            // Closer to end date
                             handleGanttDateClick(task, false, currentDate);
                           }
                         }}
@@ -3439,10 +3322,10 @@ function App() {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          cursor: (isTaskStart || isTaskEnd) ? 'pointer' : 'default',
+                          cursor: 'pointer',
                           '&:hover': {
-                            borderColor: (isTaskStart || isTaskEnd) ? '#5a6c7d' : '#f1f5f8',
-                            boxShadow: (isTaskStart || isTaskEnd) ? '0 0 0 2px rgba(90,108,125,0.2)' : 'none'
+                            borderColor: '#5a6c7d',
+                            boxShadow: '0 0 0 2px rgba(90,108,125,0.2)'
                           }
                         }}
                       >
@@ -3783,7 +3666,7 @@ function App() {
       {renderColumnsDialog()}
       {renderTasksDialog()}
       {renderSearchResults()}
-      {renderGanttDatesDialog()}
+
       
       {/* Move Task Dialog */}
       <Dialog 
