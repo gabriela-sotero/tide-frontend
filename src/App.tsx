@@ -862,6 +862,38 @@ function App() {
     setMoveTaskDialog({ open: false, taskId: '', currentBlockName: '' });
   };
 
+  const handleGanttDateClick = (task: Task, isStartDate: boolean, clickedDate: Date) => {
+    const newStartDate = isStartDate ? clickedDate : task.startDate;
+    const newDueDate = isStartDate ? task.dueDate : clickedDate;
+    
+    // Ensure start date is not after due date
+    if (newStartDate > newDueDate) {
+      if (isStartDate) {
+        // If clicking start date and it's after due date, adjust due date
+        const updatedTask = { ...task, startDate: clickedDate, dueDate: clickedDate };
+        updateTaskInState(updatedTask);
+      } else {
+        // If clicking due date and it's before start date, adjust start date
+        const updatedTask = { ...task, startDate: clickedDate, dueDate: clickedDate };
+        updateTaskInState(updatedTask);
+      }
+    } else {
+      const updatedTask = { ...task, startDate: newStartDate, dueDate: newDueDate };
+      updateTaskInState(updatedTask);
+    }
+  };
+
+
+
+  const updateTaskInState = (updatedTask: Task) => {
+    setTaskTypes(prev => prev.map(type => ({
+      ...type,
+      tasks: type.tasks.map(task => 
+        task.id === updatedTask.id ? updatedTask : task
+      )
+    })));
+  };
+
   const handleSaveBlock = () => {
     if (!editingBlock || !editingBlock.name.trim()) return;
 
@@ -1764,6 +1796,8 @@ function App() {
       </Box>
     );
   };
+
+
 
   const renderTaskDialog = () => (
     <Dialog open={openTaskDialog} onClose={handleCloseTaskDialog} maxWidth="sm" fullWidth>
@@ -3243,8 +3277,10 @@ function App() {
                      const taskStartDate = new Date(task.startDate);
                      taskStartDate.setHours(0, 0, 0, 0);
                      const isInTaskTimeline = currentDate >= taskStartDate && currentDate <= taskDate;
-                     const isTaskStart = currentDate.getTime() === taskStartDate.getTime();
-                    const isTaskEnd = currentDate.getTime() === taskDate.getTime();
+                                          const isTaskStart = currentDate.getTime() === taskStartDate.getTime();
+                     const isTaskEnd = currentDate.getTime() === taskDate.getTime();
+                     
+
                     const isOverdue = taskDate < today && task.status !== 'done';
                     const isToday = currentDate.toDateString() === new Date().toDateString();
                     
@@ -3262,16 +3298,37 @@ function App() {
                      // All other days remain white
                     
                     return (
-                      <Box key={day} sx={{ 
-                        height: 24,
-                        border: '1px solid #f1f5f8',
-                        borderRadius: 1,
-                        backgroundColor: backgroundColor,
-                        position: 'relative',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
+                      <Box 
+                        key={day} 
+                        onClick={() => {
+                          // Determine if this is closer to start or end
+                          const startDistance = Math.abs(currentDate.getTime() - taskStartDate.getTime());
+                          const endDistance = Math.abs(currentDate.getTime() - taskDate.getTime());
+                          
+                          if (startDistance <= endDistance) {
+                            // Closer to start date
+                            handleGanttDateClick(task, true, currentDate);
+                          } else {
+                            // Closer to end date
+                            handleGanttDateClick(task, false, currentDate);
+                          }
+                        }}
+                        sx={{ 
+                          height: 24,
+                          border: '1px solid #f1f5f8',
+                          borderRadius: 1,
+                          backgroundColor: backgroundColor,
+                          position: 'relative',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          '&:hover': {
+                            borderColor: '#5a6c7d',
+                            boxShadow: '0 0 0 2px rgba(90,108,125,0.2)'
+                          }
+                        }}
+                      >
                         {isTaskStart && (
                           <Box sx={{
                             position: 'absolute',
@@ -3609,6 +3666,7 @@ function App() {
       {renderColumnsDialog()}
       {renderTasksDialog()}
       {renderSearchResults()}
+
       
       {/* Move Task Dialog */}
       <Dialog 
