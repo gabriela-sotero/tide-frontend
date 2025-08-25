@@ -214,13 +214,6 @@ function App() {
       newPriority = 'low';
     }
 
-    // Remove task from source
-    setTaskTypes(prev => prev.map(type => 
-      type.id === sourceType 
-        ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
-        : type
-    ));
-
     // Update task with new status and priority
     const updatedTask = { 
       ...taskToMove, 
@@ -228,17 +221,25 @@ function App() {
       priority: newPriority
     };
     
-    // Add task to target and reorganize if moving to 'done'
-    setTaskTypes(prev => prev.map(type => 
-      type.id === sourceType 
-        ? { 
-            ...type, 
-            tasks: targetColumnId === 'done' 
-              ? reorganizeTasksWithDoneAtTop([...type.tasks, updatedTask])
-              : [...type.tasks, updatedTask]
-          }
-        : type
-    ));
+    // Remove task from source and add to target in a single operation
+    setTaskTypes(prev => prev.map(type => {
+      if (type.id === sourceType) {
+        // Remove task from source type
+        return { 
+          ...type, 
+          tasks: type.tasks.filter(t => t.id !== taskId)
+        };
+      } else if (type.id === targetTypeId) {
+        // Add task to target type
+        return { 
+          ...type, 
+          tasks: targetColumnId === 'done' 
+            ? reorganizeTasksWithDoneAtTop([...type.tasks, updatedTask])
+            : [...type.tasks, updatedTask]
+        };
+      }
+      return type;
+    }));
   };
 
   const handleColumnDrop = (e: React.DragEvent, targetColumnId: string) => {
@@ -281,13 +282,6 @@ function App() {
         // Get target priority information
         const targetPriority = e.dataTransfer.getData('priority') || taskToMove.priority;
         
-        // Remove task from source
-        setTaskTypes(prev => prev.map(type => 
-          type.id === sourceType 
-            ? { ...type, tasks: type.tasks.filter(t => t.id !== taskId) }
-            : type
-        ));
-
         // Update task with new status and priority
         const updatedTask = { 
           ...taskToMove, 
@@ -295,17 +289,18 @@ function App() {
           priority: targetPriority as 'high' | 'medium' | 'low'
         };
         
-        // Add task to target and reorganize if moving to 'done'
-        setTaskTypes(prev => prev.map(type => 
-          type.id === sourceType 
-            ? { 
-                ...type, 
-                tasks: targetColumnId === 'done' 
-                  ? reorganizeTasksWithDoneAtTop([...type.tasks, updatedTask])
-                  : [...type.tasks, updatedTask]
-              }
-            : type
-        ));
+        // Remove task from source and add back with updated status in a single operation
+        setTaskTypes(prev => prev.map(type => {
+          if (type.id === sourceType) {
+            return { 
+              ...type, 
+              tasks: targetColumnId === 'done' 
+                ? reorganizeTasksWithDoneAtTop([...type.tasks.filter(t => t.id !== taskId), updatedTask])
+                : [...type.tasks.filter(t => t.id !== taskId), updatedTask]
+            };
+          }
+          return type;
+        }));
       }
     }
   };
@@ -974,20 +969,19 @@ function App() {
       if (taskToMove && sourceType) {
         // Only move if status is different
         if (taskToMove.status !== overId) {
-          // Remove from source
-          setTaskTypes(prev => prev.map(type => 
-            type.id === sourceType 
-              ? { ...type, tasks: type.tasks.filter(t => t.id !== activeId) }
-              : type
-          ));
-
-          // Add to target with new status
+          // Update task with new status in a single operation
           const updatedTask = { ...taskToMove, status: overId };
-          setTaskTypes(prev => prev.map(type => 
-            type.id === sourceType 
-              ? { ...type, tasks: [...type.tasks, updatedTask] }
-              : type
-          ));
+          setTaskTypes(prev => prev.map(type => {
+            if (type.id === sourceType) {
+              return { 
+                ...type, 
+                tasks: overId === 'done' 
+                  ? reorganizeTasksWithDoneAtTop([...type.tasks.filter(t => t.id !== activeId), updatedTask])
+                  : [...type.tasks.filter(t => t.id !== activeId), updatedTask]
+              };
+            }
+            return type;
+          }));
         }
       }
     }
@@ -1236,9 +1230,9 @@ function App() {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
           <DragIndicatorIcon sx={{ color: '#6b7d8f', fontSize: 16 }} />
-          <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
+          <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500, overflowWrap: 'anywhere', wordBreak: 'break-word', maxWidth: '100%' }}>
             {task.title}
               </Typography>
           </Box>
@@ -1276,7 +1270,7 @@ function App() {
               </Box>
       </Box>
       
-      <Typography variant="caption" sx={{ color: '#6b7d8f', mb: 1.5, display: 'block' }}>
+      <Typography variant="caption" sx={{ color: '#6b7d8f', mb: 1.5, display: 'block', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
         {task.description}
       </Typography>
       
