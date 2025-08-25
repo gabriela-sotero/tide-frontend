@@ -336,7 +336,7 @@ function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
   const [backlogExpanded, setBacklogExpanded] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly' | 'weekly'>('kanban');
+  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly' | 'weekly' | 'daily'>('kanban');
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{open: boolean, blockId: string, blockName: string, columnId?: string}>({
     open: false,
     blockId: '',
@@ -1019,21 +1019,7 @@ function App() {
         </Typography>
       </Box>
       <Box sx={{ display: 'flex', gap: 2 }}>
-        <Button
-          variant={currentPage === 'yearly' ? 'contained' : 'outlined'}
-          onClick={() => setCurrentPage('yearly')}
-            sx={{
-            backgroundColor: currentPage === 'yearly' ? '#5a6c7d' : 'transparent',
-            color: currentPage === 'yearly' ? '#ffffff' : '#4a5568',
-            borderColor: '#8fa3b3',
-            '&:hover': { 
-              backgroundColor: currentPage === 'yearly' ? '#4a5568' : '#f1f5f8'
-            }
-          }}
-        >
-          yearly
-        </Button>
-        <Button
+                <Button
           variant={currentPage === 'kanban' ? 'contained' : 'outlined'}
           onClick={() => setCurrentPage('kanban')}
           sx={{ 
@@ -1046,6 +1032,34 @@ function App() {
           }}
         >
           kanban
+        </Button>
+        <Button
+          variant={currentPage === 'daily' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('daily')}
+          sx={{ 
+            backgroundColor: currentPage === 'daily' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'daily' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'daily' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          daily
+        </Button>
+        <Button
+          variant={currentPage === 'weekly' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('weekly')}
+          sx={{ 
+            backgroundColor: currentPage === 'weekly' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'weekly' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'weekly' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          weekly
         </Button>
         <Button
           variant={currentPage === 'monthly' ? 'contained' : 'outlined'}
@@ -1062,18 +1076,18 @@ function App() {
           monthly
         </Button>
         <Button
-          variant={currentPage === 'weekly' ? 'contained' : 'outlined'}
-          onClick={() => setCurrentPage('weekly')}
+          variant={currentPage === 'yearly' ? 'contained' : 'outlined'}
+          onClick={() => setCurrentPage('yearly')}
           sx={{ 
-            backgroundColor: currentPage === 'weekly' ? '#5a6c7d' : 'transparent',
-            color: currentPage === 'weekly' ? '#ffffff' : '#4a5568',
+            backgroundColor: currentPage === 'yearly' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'yearly' ? '#ffffff' : '#4a5568',
             borderColor: '#8fa3b3',
             '&:hover': { 
-              backgroundColor: currentPage === 'weekly' ? '#4a5568' : '#f1f5f8'
+              backgroundColor: currentPage === 'yearly' ? '#4a5568' : '#f1f5f8'
             }
           }}
         >
-          weekly
+          yearly
         </Button>
       </Box>
       </Box>
@@ -2587,6 +2601,404 @@ function App() {
     </Dialog>
   );
 
+  const renderDailyView = () => {
+    const currentDate = new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Get all tasks
+    const allTasks = taskTypes.flatMap(type => type.tasks);
+    
+    // Filter tasks for today
+    const todayTasks = allTasks.filter(task => {
+      if (!task.dueDate) return false;
+      const taskDate = new Date(task.dueDate);
+      taskDate.setHours(0, 0, 0, 0);
+      return taskDate.getTime() === today.getTime();
+    });
+    
+    // Group tasks by priority
+    const highPriorityTasks = todayTasks.filter(task => task.priority === 'high');
+    const mediumPriorityTasks = todayTasks.filter(task => task.priority === 'medium');
+    const lowPriorityTasks = todayTasks.filter(task => task.priority === 'low');
+    
+    return (
+      <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
+        {/* Daily Header */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 4 
+        }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <Typography variant="h4" sx={{ 
+              color: '#4a5568', 
+              fontWeight: 600
+            }}>
+              {today.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })} - daily overview
+            </Typography>
+            
+            <Typography variant="body2" sx={{ 
+              color: '#6b7d8f',
+              fontStyle: 'italic'
+            }}>
+              {todayTasks.length} tasks for today
+            </Typography>
+          </Box>
+          
+          <Button
+            variant="contained"
+            onClick={() => {
+              setNewTask({
+                id: '',
+                title: '',
+                description: '',
+                priority: 'medium',
+                status: 'backlog',
+                type: taskTypes.length > 0 ? taskTypes[0].id : '',
+                createdAt: new Date(),
+                startDate: getTodayDate(),
+                dueDate: getTodayDate()
+              });
+              setSelectedTask(null);
+              setIsEditing(true);
+              setOpenTaskDialog(true);
+            }}
+            sx={{
+              backgroundColor: '#5a6c7d',
+              color: '#ffffff',
+              '&:hover': { backgroundColor: '#4a5568' },
+              px: 3,
+              py: 1.5
+            }}
+          >
+            add new task
+          </Button>
+        </Box>
+        
+        {/* Priority Sections */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {/* High Priority */}
+          <Box sx={{ 
+            backgroundColor: '#ffffff', 
+            borderRadius: 2, 
+            p: 3,
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <Typography variant="h6" sx={{ 
+              color: '#e53e3e', 
+              mb: 2, 
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1
+            }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#e53e3e', 
+                borderRadius: '50%' 
+              }} />
+              high priority ({highPriorityTasks.length})
+            </Typography>
+            
+            {highPriorityTasks.length === 0 ? (
+              <Typography variant="body2" sx={{ 
+                color: '#8fa3b3', 
+                fontStyle: 'italic',
+                textAlign: 'center',
+                py: 2
+              }}>
+                no high priority tasks for today
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {highPriorityTasks.map(task => (
+                  <Box
+                    key={task.id}
+                    onClick={() => handleTaskClick(task)}
+                    sx={{
+                      backgroundColor: getStatusColor(task.status),
+                      color: '#ffffff',
+                      p: 2,
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                      '&:hover': {
+                        opacity: 0.8,
+                        transform: 'translateY(-1px)',
+                        transition: 'all 0.2s'
+                      }
+                    }}
+                  >
+                    <Typography variant="body1" sx={{ 
+                      fontWeight: 600,
+                      mb: 0.5
+                    }}>
+                      {task.title}
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      opacity: 0.9,
+                      mb: 1
+                    }}>
+                      {task.description}
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {task.type}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {task.status}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+          
+          {/* Medium Priority */}
+          <Box sx={{ 
+            backgroundColor: '#ffffff', 
+            borderRadius: 2, 
+            p: 3,
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <Typography variant="h6" sx={{ 
+              color: '#ed8936', 
+              mb: 2, 
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1
+            }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#ed8936', 
+                borderRadius: '50%' 
+              }} />
+              medium priority ({mediumPriorityTasks.length})
+            </Typography>
+            
+            {mediumPriorityTasks.length === 0 ? (
+              <Typography variant="body2" sx={{ 
+                color: '#8fa3b3', 
+                fontStyle: 'italic',
+                textAlign: 'center',
+                py: 2
+              }}>
+                no medium priority tasks for today
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {mediumPriorityTasks.map(task => (
+                  <Box
+                    key={task.id}
+                    onClick={() => handleTaskClick(task)}
+                    sx={{
+                      backgroundColor: getStatusColor(task.status),
+                      color: '#ffffff',
+                      p: 2,
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                      '&:hover': {
+                        opacity: 0.8,
+                        transform: 'translateY(-1px)',
+                        transition: 'all 0.2s'
+                      }
+                    }}
+                  >
+                    <Typography variant="body1" sx={{ 
+                      fontWeight: 600,
+                      mb: 0.5
+                    }}>
+                      {task.title}
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      opacity: 0.9,
+                      mb: 1
+                    }}>
+                      {task.description}
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {task.type}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {task.status}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+          
+          {/* Low Priority */}
+          <Box sx={{ 
+            backgroundColor: '#ffffff', 
+            borderRadius: 2, 
+            p: 3,
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          }}>
+            <Typography variant="h6" sx={{ 
+              color: '#48bb78', 
+              mb: 2, 
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1
+            }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#48bb78', 
+                borderRadius: '50%' 
+              }} />
+              low priority ({lowPriorityTasks.length})
+            </Typography>
+            
+            {lowPriorityTasks.length === 0 ? (
+              <Typography variant="body2" sx={{ 
+                color: '#8fa3b3', 
+                fontStyle: 'italic',
+                textAlign: 'center',
+                py: 2
+              }}>
+                no low priority tasks for today
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {lowPriorityTasks.map(task => (
+                  <Box
+                    key={task.id}
+                    onClick={() => handleTaskClick(task)}
+                    sx={{
+                      backgroundColor: getStatusColor(task.status),
+                      color: '#ffffff',
+                      p: 2,
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                      '&:hover': {
+                        opacity: 0.8,
+                        transform: 'translateY(-1px)',
+                        transition: 'all 0.2s'
+                      }
+                    }}
+                  >
+                    <Typography variant="body1" sx={{ 
+                      fontWeight: 600,
+                      mb: 0.5
+                    }}>
+                      {task.title}
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      opacity: 0.9,
+                      mb: 1
+                    }}>
+                      {task.description}
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {task.type}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        {task.status}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+        </Box>
+        
+        {/* Daily Summary */}
+        <Box sx={{ 
+          backgroundColor: '#ffffff', 
+          borderRadius: 2, 
+          p: 3,
+          border: '1px solid #e2e8f0',
+          mt: 3
+        }}>
+          <Typography variant="h6" sx={{ 
+            color: '#4a5568', 
+            mb: 2, 
+            fontWeight: 600 
+          }}>
+            daily summary
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#5a6c7d', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                total tasks: {todayTasks.length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#e53e3e', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                high priority: {highPriorityTasks.length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#ed8936', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                medium priority: {mediumPriorityTasks.length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#48bb78', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                low priority: {lowPriorityTasks.length}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ 
+                width: 12, 
+                height: 12, 
+                backgroundColor: '#48bb78', 
+                borderRadius: '50%' 
+              }} />
+              <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                done: {todayTasks.filter(t => t.status === 'done').length}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
+
   const renderWeeklyView = () => {
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
@@ -3655,6 +4067,8 @@ function App() {
           renderMonthlyView()
         ) : currentPage === 'weekly' ? (
           renderWeeklyView()
+        ) : currentPage === 'daily' ? (
+          renderDailyView()
         ) : (
           <>
             {renderKanbanHeader()}
