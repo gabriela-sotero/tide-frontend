@@ -54,7 +54,7 @@ interface Task {
   title: string;
   description: string;
   priority: 'low' | 'medium' | 'high';
-  status: 'backlog' | 'to-do' | 'in-progress' | 'done';
+  status: string; // Allow dynamic column names
   type: string;
   createdAt: Date;
   startDate: Date;
@@ -120,7 +120,17 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[] } | null> => {
       request.onsuccess = () => {
         const result = request.result;
         if (result && result.taskTypes && Array.isArray(result.taskTypes)) {
-          resolve({ taskTypes: result.taskTypes });
+          // Convert date strings back to Date objects
+          const taskTypesWithDates = result.taskTypes.map((type: TaskType) => ({
+            ...type,
+            tasks: type.tasks.map((task: Task) => ({
+              ...task,
+              createdAt: new Date(task.createdAt),
+              startDate: new Date(task.startDate),
+              dueDate: new Date(task.dueDate)
+            }))
+          }));
+          resolve({ taskTypes: taskTypesWithDates });
         } else {
           resolve(null);
         }
@@ -139,10 +149,10 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[] } | null> => {
 function App() {
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [columns, setColumns] = useState([
-    { id: 'backlog', name: 'backlog', bgColor: '#e2e8f0', color: '#4a5568' },
-    { id: 'to-do', name: 'to do', bgColor: '#e2e8f0', color: '#4a5568' },
-    { id: 'in-progress', name: 'in progress', bgColor: '#e2e8f0', color: '#4a5568' },
-    { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568' }
+    { id: 'backlog', name: 'backlog', bgColor: '#e2e8f0', color: '#4a5568', fixed: true },
+    { id: 'to-do', name: 'to do', bgColor: '#e2e8f0', color: '#4a5568', fixed: false },
+    { id: 'in-progress', name: 'in progress', bgColor: '#e2e8f0', color: '#4a5568', fixed: false },
+    { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568', fixed: true }
   ]);
 
   // Helper function to get column by id
@@ -309,10 +319,7 @@ function App() {
   // Helper function to get today's date in local timezone
   const getTodayDate = () => {
     const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return new Date(`${year}-${month}-${day}`);
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
   };
 
   const [newTask, setNewTask] = useState<Task>({
@@ -447,7 +454,7 @@ function App() {
   };
 
   const handleAddTask = (blockType?: string, columnId?: string) => {
-    const newStatus = (columnId as 'backlog' | 'to-do' | 'in-progress' | 'done') || 'backlog';
+    const newStatus = (columnId as string) || 'backlog';
     console.log('handleAddTask called with:', { blockType, columnId, newStatus });
     
     setNewTask({
@@ -777,7 +784,8 @@ function App() {
       id: newColumnId,
       name: newColumnName.toLowerCase(),
       bgColor: '#e2e8f0',
-      color: '#4a5568'
+      color: '#4a5568',
+      fixed: false
     };
     
     // Add new column to columns array
@@ -2078,16 +2086,33 @@ function App() {
                       </Box>
                     ) : (
                       <>
-                        <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500, flex: 1 }}>
-                          {column.name}
-                        </Typography>
-                        <IconButton 
-                          size="small" 
-                          onClick={() => handleEditColumn(columnId, column.name)}
-                          sx={{ color: '#8fa3b3', '&:hover': { color: '#5a6c7d' } }}
-                        >
-                          <EditIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                          <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                            {column.name}
+                          </Typography>
+                          {column.fixed && (
+                            <Typography variant="caption" sx={{ 
+                              color: '#8fa3b3', 
+                              fontStyle: 'italic',
+                              backgroundColor: '#f1f5f8',
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                              fontSize: '0.7rem'
+                            }}>
+                              fixed
+                            </Typography>
+                          )}
+                        </Box>
+                        {!column.fixed && (
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleEditColumn(columnId, column.name)}
+                            sx={{ color: '#8fa3b3', '&:hover': { color: '#5a6c7d' } }}
+                          >
+                            <EditIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        )}
                       </>
                     )}
                     
@@ -2672,7 +2697,7 @@ function App() {
                 title: '',
                 description: '',
                 priority: 'medium',
-                status: 'to-do',
+                status: 'backlog',
                 type: taskTypes.length > 0 ? taskTypes[0].id : '',
                 createdAt: new Date(),
                 startDate: getTodayDate(),
@@ -2752,7 +2777,7 @@ function App() {
                           title: '',
                           description: '',
                           priority: 'medium',
-                          status: 'to-do',
+                          status: 'backlog',
                           type: taskTypes.length > 0 ? taskTypes[0].id : '',
                           createdAt: new Date(),
                           startDate: dayDate,
