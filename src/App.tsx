@@ -1194,7 +1194,12 @@ function App() {
 
       // Criar as tarefas sugeridas pela IA
       if (response.tasks && response.tasks.length > 0) {
+        console.log('=== RESPOSTA DA IA ===');
+        console.log('Response completa:', response);
+        console.log('Tasks da IA:', response.tasks);
+        
         const newTasks: Task[] = response.tasks.map((aiTask: any) => {
+          console.log('Processando aiTask:', aiTask);
           // Processar datas
           let startDate = getTodayDate();
           let dueDate = getTodayDate();
@@ -1271,7 +1276,7 @@ function App() {
             }
           }
 
-          return {
+          const newTask = {
             id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
             title: aiTask.title,
             description: aiTask.description,
@@ -1286,12 +1291,35 @@ function App() {
             recurringTime: aiTask.recurringTime || '',
             appointmentTime: aiTask.appointmentTime || ''
           };
+          
+          console.log('Tarefa criada:', newTask);
+          return newTask;
         });
 
+        // Debug: verificar tipos de tarefas criadas
+        console.log('=== DEBUG: TIPOS DE TAREFAS ===');
+        newTasks.forEach(task => {
+          console.log(`Tarefa: "${task.title}" - Tipo: ${task.taskType} - Recorrente: ${task.taskType === 'recorrente'}`);
+        });
+        
         // Adicionar as tarefas ao bloco correto (APENAS tarefas não recorrentes vão para o kanban)
+        console.log('=== FILTRAGEM DE TAREFAS ===');
+        console.log('Total de tarefas:', newTasks.length);
+        newTasks.forEach((task, index) => {
+          console.log(`Tarefa ${index + 1}:`, {
+            title: task.title,
+            taskType: task.taskType,
+            isRecurring: task.taskType === 'recorrente',
+            recurringDays: task.recurringDays
+          });
+        });
+        
         const nonRecurringTasks = newTasks.filter(task => task.taskType !== 'recorrente');
+        console.log('Tarefas não recorrentes (vão para kanban):', nonRecurringTasks.length);
+        console.log('Tarefas recorrentes (vão para schedule):', newTasks.filter(task => task.taskType === 'recorrente').length);
         
         if (nonRecurringTasks.length > 0) {
+          console.log('Adicionando tarefas não recorrentes ao kanban:', nonRecurringTasks.map(t => t.title));
           setTaskTypes(prev => prev.map(type => 
             type.name === targetBlock?.name
               ? { ...type, tasks: [...type.tasks, ...nonRecurringTasks] }
@@ -1302,7 +1330,13 @@ function App() {
         // Tarefas recorrentes NÃO vão para o kanban, mas vão para o gantt se tiverem data de fim
 
         // Adicionar tarefas recorrentes ao schedule E ao estado recurringTasks
+        console.log('=== PROCESSANDO TAREFAS RECORRENTES ===');
         newTasks.forEach(task => {
+          console.log(`Processando tarefa: "${task.title}" - Tipo: ${task.taskType} - Recorrente: ${task.taskType === 'recorrente'}`);
+          console.log(`RecurringDays:`, task.recurringDays);
+          console.log(`É recorrente e tem recurringDays?`, task.taskType === 'recorrente' && task.recurringDays && Array.isArray(task.recurringDays) && task.recurringDays.length > 0);
+          
+          // VERIFICAÇÃO CRÍTICA: Só processar como recorrente se for realmente recorrente
           if (task.taskType === 'recorrente' && task.recurringDays && Array.isArray(task.recurringDays) && task.recurringDays.length > 0) {
             // Adicionar ao schedule dos blocos
             setTaskTypes(prev => prev.map(type => {
@@ -2165,7 +2199,7 @@ function App() {
       </Typography>
       
       {/* Recurring Task Indicator */}
-      {task.taskType !== 'geral' && (
+      {task.taskType === 'recorrente' && (
         <Box sx={{ mb: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Chip

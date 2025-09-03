@@ -150,6 +150,16 @@ Exemplos de entrada:
 - Tarefas que se repetem = "recorrente" (com recurringDays)
 - Use "compromisso" para consultas médicas, reuniões, eventos únicos
 - Use "recorrente" apenas quando houver palavras como "toda", "todos os", "semanalmente"
+
+**REGRAS DE CLASSIFICAÇÃO:**
+- "gastroenterologista dia 05/09 14:20" → taskType: "compromisso" (NÃO recorrente)
+- "consulta médica amanhã 15h" → taskType: "compromisso" (NÃO recorrente)
+- "reunião dia 20 às 10h" → taskType: "compromisso" (NÃO recorrente)
+- "exercícios toda terça 12h" → taskType: "recorrente" (com recurringDays)
+- "aula de piano toda quarta 16h" → taskType: "recorrente" (com recurringDays)
+
+**COMPROMISSOS ÚNICOS SEMPRE = "compromisso"**
+**RECORRÊNCIAS SEMPRE = "recorrente"**
 `;
 
 
