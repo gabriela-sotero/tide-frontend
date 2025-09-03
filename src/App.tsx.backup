@@ -16,8 +16,7 @@ import {
   Collapse,
   Chip,
   InputAdornment,
-  Tooltip,
-  CircularProgress
+  Tooltip
 } from '@mui/material';
 import { 
   Add as AddIcon,
@@ -31,8 +30,7 @@ import {
   Check as CheckIcon,
   Close as CloseIcon,
   ViewColumn as ViewColumnIcon,
-  ViewList as ViewListIcon,
-  AutoAwesome as AutoAwesomeIcon
+  ViewList as ViewListIcon
 } from '@mui/icons-material';
 import {
   DndContext,
@@ -50,7 +48,6 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import './App.css';
-import { createTasksFromAI, AITaskResponse } from './services/aiService';
 
 interface Task {
   id: string;
@@ -58,15 +55,25 @@ interface Task {
   description: string;
   priority: 'low' | 'medium' | 'high';
   status: string; // Allow dynamic column names
-  type?: string; // Opcional para compatibilidade
+  type: string;
   createdAt: Date;
   startDate: Date;
-  dueDate?: Date; // Opcional para tarefas recorrentes sem fim
-  taskType: 'geral' | 'recorrente' | 'compromisso';
-  blockType: string;
-  recurringDays?: string[];
-  recurringTime?: string;
-  appointmentTime?: string; // Para compromissos
+  dueDate: Date;
+  isRecurring?: boolean;
+  recurringPattern?: RecurringPattern;
+  parentRecurringTaskId?: string; // Para tarefas geradas automaticamente
+}
+
+interface RecurringPattern {
+  frequency: 'daily' | 'weekly' | 'monthly';
+  interval: number; // A cada quantos dias/semanas/meses
+  daysOfWeek?: string[]; // Para recorrência semanal
+  dayOfMonth?: number; // Para recorrência mensal
+  startTime?: string; // Horário específico (ex: "15:00")
+  endTime?: string; // Horário de fim (ex: "16:50")
+  startDate: Date;
+  endDate?: Date; // Data de fim da recorrência (opcional)
+  maxOccurrences?: number; // Número máximo de ocorrências
 }
 
 interface RecurringTask {
@@ -74,14 +81,11 @@ interface RecurringTask {
   title: string;
   description: string;
   priority: 'low' | 'medium' | 'high';
-  blockType: string; // Qual bloco ela pertence
+  type: string;
+  recurringPattern: RecurringPattern;
+  isActive: boolean;
   createdAt: Date;
-  startDate: Date; // Data de início da recorrência
-  dueDate?: Date; // Data de fim da recorrência (opcional para recorrência indefinida)
-  taskType: 'recorrente' | 'compromisso';
-  recurringDays: string[];
-  recurringTime?: string;
-  appointmentTime?: string; // Para compromissos
+  lastGenerated?: Date; // Última vez que tarefas foram geradas
 }
 
 interface TaskType {
@@ -125,14 +129,13 @@ const initDB = (): Promise<IDBDatabase> => {
   });
 };
 
-const saveBoard = (board: { taskTypes: TaskType[]; recurringTasks: RecurringTask[] }) => {
+const saveBoard = (board: { taskTypes: TaskType[] }) => {
   initDB().then(db => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const boardData = { 
       id: 'main', 
       taskTypes: board.taskTypes, 
-      recurringTasks: board.recurringTasks,
       lastUpdated: new Date().toISOString() 
     };
     
@@ -143,7 +146,7 @@ const saveBoard = (board: { taskTypes: TaskType[]; recurringTasks: RecurringTask
   });
 };
 
-const loadBoard = (): Promise<{ taskTypes: TaskType[]; recurringTasks: RecurringTask[] } | null> => {
+const loadBoard = (): Promise<{ taskTypes: TaskType[] } | null> => {
   return new Promise((resolve) => {
     initDB().then(db => {
       const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -153,29 +156,17 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[]; recurringTasks: Recurring
       request.onsuccess = () => {
         const result = request.result;
         if (result && result.taskTypes && Array.isArray(result.taskTypes)) {
-          // Convert date strings back to Date objects for taskTypes
+          // Convert date strings back to Date objects
           const taskTypesWithDates = result.taskTypes.map((type: TaskType) => ({
             ...type,
             tasks: type.tasks.map((task: Task) => ({
               ...task,
               createdAt: new Date(task.createdAt),
               startDate: new Date(task.startDate),
-              dueDate: task.dueDate ? new Date(task.dueDate) : undefined
+              dueDate: new Date(task.dueDate)
             }))
           }));
-
-          // Convert date strings back to Date objects for recurringTasks
-          const recurringTasksWithDates = (result.recurringTasks || []).map((task: RecurringTask) => ({
-            ...task,
-            createdAt: new Date(task.createdAt),
-            startDate: new Date(task.startDate),
-                          dueDate: task.dueDate ? new Date(task.dueDate) : undefined
-          }));
-
-          resolve({ 
-            taskTypes: taskTypesWithDates,
-            recurringTasks: recurringTasksWithDates
-          });
+          resolve({ taskTypes: taskTypesWithDates });
         } else {
           resolve(null);
         }
@@ -193,12 +184,11 @@ const loadBoard = (): Promise<{ taskTypes: TaskType[]; recurringTasks: Recurring
 
 function App() {
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
-  const [recurringTasks, setRecurringTasks] = useState<RecurringTask[]>([]);
   const [columns, setColumns] = useState([
-    { id: 'backlog', name: 'backlog', bgColor: '#f1f5f8', color: '#4a5568', fixed: true },
-    { id: 'to-do', name: 'to do', bgColor: '#f1f5f8', color: '#4a5568', fixed: false },
-    { id: 'in-progress', name: 'in progress', bgColor: '#f1f5f8', color: '#4a5568', fixed: false },
-    { id: 'done', name: 'done', bgColor: '#f1f5f8', color: '#4a5568', fixed: true }
+    { id: 'backlog', name: 'backlog', bgColor: '#e2e8f0', color: '#4a5568', fixed: true },
+    { id: 'to-do', name: 'to do', bgColor: '#e2e8f0', color: '#4a5568', fixed: false },
+    { id: 'in-progress', name: 'in progress', bgColor: '#e2e8f0', color: '#4a5568', fixed: false },
+    { id: 'done', name: 'done', bgColor: '#e2e8f0', color: '#4a5568', fixed: true }
   ]);
 
   // Helper function to get column by id
@@ -369,14 +359,10 @@ function App() {
     description: '',
     priority: 'medium',
     status: 'backlog',
+    type: '',
     createdAt: new Date(),
     startDate: getTodayDate(),
-    dueDate: getTodayDate(),
-    taskType: 'geral',
-    blockType: 'general',
-    recurringDays: [],
-    recurringTime: '',
-    appointmentTime: ''
+    dueDate: getTodayDate()
   });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
@@ -401,7 +387,6 @@ function App() {
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
-  const [newBlockName, setNewBlockName] = useState('');
   const [selectedBlockColor, setSelectedBlockColor] = useState('#5a6c7d');
   const [blockSchedule, setBlockSchedule] = useState<{
     monday: string[];
@@ -435,26 +420,28 @@ function App() {
     const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     return Math.ceil((days + mondayOffset + 1) / 7);
   });
-  const [selectedDay, setSelectedDay] = useState(new Date());
   const [moveTaskDialog, setMoveTaskDialog] = useState<{open: boolean, taskId: string, currentBlockName: string}>({
     open: false,
     taskId: '',
     currentBlockName: ''
   });
-
-
-
-  // Chat states
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<Array<{
-    id: string;
-    type: 'user' | 'ai';
-    content: string;
-    timestamp: Date;
-    aiResponse?: AITaskResponse;
-  }>>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [recurringTasks, setRecurringTasks] = useState<RecurringTask[]>([]);
+  const [openRecurringTasksDialog, setOpenRecurringTasksDialog] = useState(false);
+  const [editingRecurringTask, setEditingRecurringTask] = useState<RecurringTask | null>(null);
+  const [newRecurringTask, setNewRecurringTask] = useState<Omit<RecurringTask, 'id' | 'createdAt'>>({
+    title: '',
+    description: '',
+    priority: 'medium',
+    type: 'feature', // Valor padrão
+    recurringPattern: {
+      frequency: 'weekly',
+      interval: 1,
+      daysOfWeek: ['monday'],
+      startDate: new Date(),
+      endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+    },
+    isActive: true
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -468,42 +455,106 @@ function App() {
     loadBoard().then(savedBoard => {
       if (savedBoard) {
         setTaskTypes(savedBoard.taskTypes);
-        setRecurringTasks(savedBoard.recurringTasks || []);
-      } else {
-        // Criar um bloco padrão se não houver dados salvos
-        const defaultBlock: TaskType = {
-          id: 'general',
-          name: 'general',
-          color: '#5a6c7d',
-          tasks: [],
-          expanded: true,
-          expandedByColumn: columns.reduce((acc, col) => ({
-            ...acc,
-            [col.id]: col.id === 'backlog' ? true : false
-          }), {}),
-          schedule: {
-            monday: [],
-            tuesday: [],
-            wednesday: [],
-            thursday: [],
-            friday: [],
-            saturday: [],
-            sunday: []
-          }
-        };
-        setTaskTypes([defaultBlock]);
       }
     }).catch(error => {
       console.error('Failed to load board:', error);
     });
   }, []);
 
-  // Save board to IndexedDB whenever taskTypes or recurringTasks changes
+  // Save board to IndexedDB whenever taskTypes changes
   useEffect(() => {
     if (taskTypes.length > 0) {
-      saveBoard({ taskTypes, recurringTasks });
+      saveBoard({ taskTypes });
     }
-  }, [taskTypes, recurringTasks]);
+  }, [taskTypes]);
+
+  // Save recurring tasks to IndexedDB whenever recurringTasks changes
+  useEffect(() => {
+    if (recurringTasks.length > 0) {
+      initDB().then(db => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const recurringTasksData = { 
+          id: 'recurring_tasks', 
+          recurringTasks, 
+          lastUpdated: new Date().toISOString() 
+        };
+        
+        store.put(recurringTasksData);
+        console.log('Recurring tasks saved to IndexedDB');
+      }).catch(error => {
+        console.error('Error saving recurring tasks:', error);
+      });
+    }
+  }, [recurringTasks]);
+
+  // Load recurring tasks from IndexedDB on component mount
+  useEffect(() => {
+    initDB().then(db => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      
+      const request = store.get('recurring_tasks');
+      request.onsuccess = () => {
+        const result = request.result;
+        if (result && result.recurringTasks && Array.isArray(result.recurringTasks)) {
+          // Convert date strings back to Date objects
+          const recurringTasksWithDates = result.recurringTasks.map((rt: RecurringTask) => ({
+            ...rt,
+            createdAt: new Date(rt.createdAt),
+            lastGenerated: rt.lastGenerated ? new Date(rt.lastGenerated) : undefined,
+            recurringPattern: {
+              ...rt.recurringPattern,
+              startDate: new Date(rt.recurringPattern.startDate),
+              endDate: rt.recurringPattern.endDate ? new Date(rt.recurringPattern.endDate) : undefined
+            }
+          }));
+          setRecurringTasks(recurringTasksWithDates);
+        }
+      };
+      request.onerror = () => {
+        console.error('Error loading recurring tasks:', request.error);
+      };
+    }).catch(error => {
+      console.error('Error loading recurring tasks:', error);
+    });
+  }, []);
+
+  // Update newRecurringTask type when taskTypes changes
+  useEffect(() => {
+    if (taskTypes.length > 0) {
+      setNewRecurringTask(prev => ({
+        ...prev,
+        type: taskTypes[0].id
+      }));
+    }
+  }, [taskTypes]);
+
+  // Generate recurring tasks daily
+  useEffect(() => {
+    const generateTasks = () => {
+      generateAllRecurringTasks();
+    };
+
+    // Gerar tarefas na primeira carga
+    generateTasks();
+
+    // Configurar para gerar tarefas diariamente às 00:00
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
+    
+    const timer = setTimeout(() => {
+      generateTasks();
+      // Configurar para executar diariamente
+      setInterval(generateTasks, 24 * 60 * 60 * 1000);
+    }, timeUntilMidnight);
+
+    return () => clearTimeout(timer);
+  }, [recurringTasks]);
 
   const toggleTypeExpansion = (typeId: string, columnId: KanbanColumn) => {
     setTaskTypes(prev => prev.map(type => 
@@ -533,20 +584,20 @@ function App() {
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'high': return '#ef4444';      // Vermelho mais suave
-      case 'medium': return '#f59e0b';    // Laranja mais suave
-      case 'low': return '#10b981';       // Verde mais suave
-      default: return '#8fa3b3';          // Cinza da paleta principal
+      case 'high': return '#e53e3e';
+      case 'medium': return '#ffb366';
+      case 'low': return '#52c396';
+      default: return '#a8b5d1';
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'backlog': return '#8fa3b3';    // Cinza da paleta principal
-      case 'to-do': return '#f59e0b';      // Laranja da paleta principal
-      case 'in-progress': return '#3b82f6'; // Azul da paleta principal
-      case 'done': return '#10b981';       // Verde da paleta principal
-      default: return '#8fa3b3';           // Cinza da paleta principal
+      case 'backlog': return '#a8b5d1';
+      case 'to-do': return '#ffb366';
+      case 'in-progress': return '#4a9eff';
+      case 'done': return '#52c396';
+      default: return '#a8b5d1';
     }
   };
 
@@ -558,14 +609,10 @@ function App() {
       description: task.description,
       priority: task.priority,
       status: task.status,
+      type: task.type,
       createdAt: task.createdAt,
       startDate: task.startDate,
-      dueDate: task.dueDate,
-      taskType: task.taskType,
-      blockType: task.blockType,
-      recurringDays: task.recurringDays || [],
-      recurringTime: task.recurringTime || '',
-      appointmentTime: task.appointmentTime || ''
+      dueDate: task.dueDate
     });
     setIsEditing(true);
     setOpenTaskDialog(true);
@@ -573,6 +620,7 @@ function App() {
 
   const handleAddTask = (blockType?: string, columnId?: string) => {
     const newStatus = (columnId as string) || 'backlog';
+    console.log('handleAddTask called with:', { blockType, columnId, newStatus });
     
     setNewTask({
       id: '',
@@ -580,14 +628,10 @@ function App() {
       description: '',
       priority: 'medium',
       status: newStatus,
+      type: blockType || (taskTypes.length > 0 ? taskTypes[0].id : ''),
       createdAt: new Date(),
       startDate: getTodayDate(),
-      dueDate: getTodayDate(),
-      taskType: 'geral',
-      blockType: 'general',
-      recurringDays: [],
-      recurringTime: '',
-      appointmentTime: ''
+      dueDate: getTodayDate()
     });
     setSelectedTask(null);
     setIsEditing(true);
@@ -604,106 +648,62 @@ function App() {
       description: '',
       priority: 'medium',
       status: 'backlog',
+      type: '',
       createdAt: new Date(),
       startDate: getTodayDate(),
-      dueDate: getTodayDate(),
-      taskType: 'geral',
-      blockType: 'general',
-      recurringDays: [],
-      recurringTime: '',
-      appointmentTime: ''
+      dueDate: getTodayDate()
     });
   };
 
   const handleSaveTask = () => {
-    if (!newTask.title.trim()) return;
+    if (!newTask.title.trim() || !newTask.type) return;
     
     if (selectedTask) {
       // Update existing task
       const updatedTask: Task = {
-        ...selectedTask,
-        title: newTask.title,
-        description: newTask.description,
-        priority: newTask.priority,
-        status: newTask.status,
-        dueDate: newTask.dueDate,
-        taskType: newTask.taskType,
-        recurringDays: newTask.recurringDays || [],
-        recurringTime: newTask.recurringTime || '',
-        appointmentTime: newTask.appointmentTime || ''
+        ...newTask,
+        id: selectedTask.id,
+        createdAt: selectedTask.createdAt,
+        startDate: newTask.startDate || getTodayDate(),
+        dueDate: newTask.dueDate || getTodayDate()
       };
       
-      if (selectedTask.taskType === 'geral') {
-        // Update in kanban board
+      // If the type has changed, move the task to the new type
+      if (selectedTask.type !== updatedTask.type) {
+        setTaskTypes(prev => prev.map(type => {
+          if (type.id === selectedTask.type) {
+            // Remove from old type
+            return { ...type, tasks: type.tasks.filter(t => t.id !== updatedTask.id) };
+          } else if (type.id === updatedTask.type) {
+            // Add to new type
+            return { ...type, tasks: [...type.tasks, updatedTask] };
+          }
+          return type;
+        }));
+      } else {
+        // Update in same type
         setTaskTypes(prev => prev.map(type => ({
           ...type,
-          tasks: type.tasks.map(task => 
-            task.id === selectedTask.id ? updatedTask : task
-          )
+          tasks: type.tasks.map(t => t.id === updatedTask.id ? updatedTask : t)
         })));
-      } else {
-        // Update in recurring/compromisso list
-        const updatedRecurringTask: RecurringTask = {
-          id: selectedTask.id,
-          title: updatedTask.title,
-          description: updatedTask.description,
-          priority: updatedTask.priority,
-          blockType: updatedTask.type || 'general',
-          createdAt: selectedTask.createdAt,
-          startDate: updatedTask.startDate,
-          dueDate: updatedTask.dueDate,
-          taskType: updatedTask.taskType as 'recorrente' | 'compromisso',
-          recurringDays: updatedTask.recurringDays || [],
-          recurringTime: updatedTask.recurringTime || '',
-          appointmentTime: updatedTask.appointmentTime || ''
-        };
-        setRecurringTasks(prev => prev.map(task => 
-          task.id === selectedTask.id ? updatedRecurringTask : task
-        ));
       }
     } else {
       // Add new task
       const newTaskToAdd: Task = {
+        ...newTask,
         id: Date.now().toString(),
-        title: newTask.title,
-        description: newTask.description,
-        priority: newTask.priority,
-        status: newTask.status,
-        dueDate: newTask.dueDate || getTodayDate(),
-        blockType: newTask.type || 'general',
         createdAt: new Date(),
         startDate: newTask.startDate || getTodayDate(),
-        taskType: newTask.taskType,
-        recurringDays: newTask.recurringDays || [],
-        recurringTime: newTask.recurringTime || '',
-        appointmentTime: newTask.appointmentTime || ''
+        dueDate: newTask.dueDate || getTodayDate()
       };
       
-      if (newTask.taskType === 'geral') {
-        // Add to kanban board
-        setTaskTypes(prev => prev.map(type => 
-          type.id === 'general' 
-            ? { ...type, tasks: [...type.tasks, newTaskToAdd] }
-            : type
-        ));
-      } else {
-        // Add to recurring/compromisso list
-        const newRecurringTask: RecurringTask = {
-          id: Date.now().toString(),
-          title: newTask.title,
-          description: newTask.description,
-          priority: newTask.priority,
-          blockType: newTask.type || 'general',
-          createdAt: new Date(),
-          startDate: newTask.startDate || getTodayDate(),
-          dueDate: newTask.dueDate || getTodayDate(),
-          taskType: newTask.taskType as 'recorrente' | 'compromisso',
-          recurringDays: newTask.recurringDays || [],
-          recurringTime: newTask.recurringTime || '',
-          appointmentTime: newTask.appointmentTime || ''
-        };
-        setRecurringTasks(prev => [...prev, newRecurringTask]);
-      }
+      console.log('Saving new task:', newTaskToAdd);
+      
+      setTaskTypes(prev => prev.map(type => 
+        type.id === newTaskToAdd.type 
+          ? { ...type, tasks: [...type.tasks, newTaskToAdd] }
+          : type
+      ));
     }
     
     handleCloseTaskDialog();
@@ -805,15 +805,15 @@ function App() {
       sunday: []
     });
     setSelectedBlockColor('#5a6c7d');
-    setNewBlockName('');
+    setNewTask({ ...newTask, type: '' });
   };
 
   const handleAddBlock = () => {
-    if (!newBlockName.trim()) return;
+    if (!newTask.type.trim()) return;
     
     const newBlock: TaskType = {
       id: Date.now().toString(),
-      name: newBlockName,
+      name: newTask.type,
       color: selectedBlockColor,
       tasks: [],
       expanded: true,
@@ -825,7 +825,7 @@ function App() {
     };
     
     setTaskTypes(prev => [...prev, newBlock]);
-    setNewBlockName('');
+    setNewTask({ ...newTask, type: '' });
     setSelectedBlockColor('#5a6c7d'); // Reset to default color
     setBlockSchedule({
       monday: [],
@@ -995,8 +995,8 @@ function App() {
     const newColumn = {
       id: newColumnId,
       name: newColumnName.toLowerCase(),
-              bgColor: '#f1f5f8',
-        color: '#4a5568',
+      bgColor: '#e2e8f0',
+      color: '#4a5568',
       fixed: false
     };
     
@@ -1052,18 +1052,18 @@ function App() {
           : type
       ));
 
-              // Add task to target block - if moving to 'done' column, add at the top
-        const updatedTask = { ...taskToMove, blockType: targetBlockId };
-        setTaskTypes(prev => prev.map(type => 
-          type.id === targetBlockId 
-            ? { 
-                ...type, 
-                tasks: updatedTask.status === 'done' 
-                  ? [updatedTask, ...type.tasks] // Add at top for 'done' column
-                  : [...type.tasks, updatedTask] // Add at bottom for other columns
-              }
-            : type
-        ));
+      // Add task to target block - if moving to 'done' column, add at the top
+      const updatedTask = { ...taskToMove, type: targetBlockId };
+      setTaskTypes(prev => prev.map(type => 
+        type.id === targetBlockId 
+          ? { 
+              ...type, 
+              tasks: updatedTask.status === 'done' 
+                ? [updatedTask, ...type.tasks] // Add at top for 'done' column
+                : [...type.tasks, updatedTask] // Add at bottom for other columns
+            }
+          : type
+      ));
     }
 
     // Close dialog
@@ -1074,12 +1074,191 @@ function App() {
     setMoveTaskDialog({ open: false, taskId: '', currentBlockName: '' });
   };
 
+  // Funções para gerenciar tarefas recorrentes
+  const generateRecurringTasks = (recurringTask: RecurringTask) => {
+    const { recurringPattern } = recurringTask;
+    const generatedTasks: Task[] = [];
+    const now = new Date();
+    const startDate = new Date(recurringPattern.startDate);
+    const endDate = recurringPattern.endDate || new Date(now.getFullYear() + 1, 11, 31); // Até o final do ano se não especificado
+    
+    let currentDate = new Date(startDate);
+    let occurrenceCount = 0;
+    
+    while (currentDate <= endDate && 
+           currentDate <= now && 
+           occurrenceCount < (recurringPattern.maxOccurrences || 1000)) {
+      
+      // Verificar se já existe uma tarefa para esta data
+      const existingTask = taskTypes.flatMap(type => type.tasks).find(task => 
+        task.parentRecurringTaskId === recurringTask.id &&
+        task.dueDate.toDateString() === currentDate.toDateString()
+      );
+      
+      if (!existingTask) {
+        const newTask: Task = {
+          id: `${recurringTask.id}_${currentDate.getTime()}`,
+          title: recurringTask.title,
+          description: recurringTask.description,
+          priority: recurringTask.priority,
+          status: 'backlog',
+          type: recurringTask.type,
+          createdAt: new Date(),
+          startDate: new Date(currentDate),
+          dueDate: new Date(currentDate),
+          isRecurring: true,
+          parentRecurringTaskId: recurringTask.id
+        };
+        
+        generatedTasks.push(newTask);
+      }
+      
+      // Calcular próxima data baseada na frequência
+      switch (recurringPattern.frequency) {
+        case 'daily':
+          currentDate.setDate(currentDate.getDate() + recurringPattern.interval);
+          break;
+        case 'weekly':
+          if (recurringPattern.daysOfWeek && recurringPattern.daysOfWeek.length > 0) {
+            // Encontrar próximo dia da semana válido
+            const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const currentDayIndex = currentDate.getDay();
+            const currentDayName = dayNames[currentDayIndex];
+            
+            const currentDayInPattern = recurringPattern.daysOfWeek.indexOf(currentDayName);
+            let nextDayIndex = currentDayInPattern + 1;
+            
+            if (nextDayIndex >= recurringPattern.daysOfWeek.length) {
+              // Próxima semana
+              currentDate.setDate(currentDate.getDate() + (7 - currentDayIndex) + 
+                (recurringPattern.daysOfWeek[0] ? dayNames.indexOf(recurringPattern.daysOfWeek[0]) : 0));
+            } else {
+              // Próximo dia na mesma semana
+              const nextDayName = recurringPattern.daysOfWeek[nextDayIndex];
+              const nextDayIndexInWeek = dayNames.indexOf(nextDayName);
+              currentDate.setDate(currentDate.getDate() + (nextDayIndexInWeek - currentDayIndex));
+            }
+          } else {
+            currentDate.setDate(currentDate.getDate() + (7 * recurringPattern.interval));
+          }
+          break;
+        case 'monthly':
+          currentDate.setMonth(currentDate.getMonth() + recurringPattern.interval);
+          if (recurringPattern.dayOfMonth) {
+            currentDate.setDate(recurringPattern.dayOfMonth);
+          }
+          break;
+      }
+      
+      occurrenceCount++;
+    }
+    
+    return generatedTasks;
+  };
+
+  const generateAllRecurringTasks = () => {
+    const activeRecurringTasks = recurringTasks.filter(rt => rt.isActive);
+    const allGeneratedTasks: Task[] = [];
+    
+    activeRecurringTasks.forEach(recurringTask => {
+      const generatedTasks = generateRecurringTasks(recurringTask);
+      allGeneratedTasks.push(...generatedTasks);
+    });
+    
+    // Adicionar tarefas geradas aos tipos apropriados
+    if (allGeneratedTasks.length > 0) {
+      setTaskTypes(prev => prev.map(type => ({
+        ...type,
+        tasks: [...type.tasks, ...allGeneratedTasks.filter(task => task.type === type.id)]
+      })));
+    }
+    
+    // Atualizar lastGenerated para tarefas recorrentes
+    setRecurringTasks(prev => prev.map(rt => ({
+      ...rt,
+      lastGenerated: new Date()
+    })));
+  };
+
+  const addRecurringTask = (recurringTask: Omit<RecurringTask, 'id' | 'createdAt'>) => {
+    const newRecurringTask: RecurringTask = {
+      ...recurringTask,
+      id: `recurring_${Date.now()}`,
+      createdAt: new Date()
+    };
+    
+    setRecurringTasks(prev => [...prev, newRecurringTask]);
+    
+    // Gerar tarefas imediatamente se estiver ativa
+    if (newRecurringTask.isActive) {
+      const generatedTasks = generateRecurringTasks(newRecurringTask);
+      if (generatedTasks.length > 0) {
+        setTaskTypes(prev => prev.map(type => ({
+          ...type,
+          tasks: [...type.tasks, ...generatedTasks.filter(task => task.type === type.id)]
+        })));
+      }
+    }
+  };
+
+  const updateRecurringTask = (id: string, updates: Partial<RecurringTask>) => {
+    setRecurringTasks(prev => prev.map(rt => 
+      rt.id === id ? { ...rt, ...updates } : rt
+    ));
+  };
+
+  const deleteRecurringTask = (id: string) => {
+    // Remover tarefas geradas por esta recorrência
+    setTaskTypes(prev => prev.map(type => ({
+      ...type,
+      tasks: type.tasks.filter(task => task.parentRecurringTaskId !== id)
+    })));
+    
+    // Remover a tarefa recorrente
+    setRecurringTasks(prev => prev.filter(rt => rt.id !== id));
+  };
+
+  const createRecurringTaskFromSchedule = (block: TaskType) => {
+    if (!block.schedule) return;
+    
+    const schedule = block.schedule;
+    const scheduleKeys = Object.keys(schedule) as Array<keyof typeof schedule>;
+    
+    scheduleKeys.forEach(day => {
+      const daySchedule = schedule[day];
+      if (daySchedule && daySchedule.length > 0) {
+        daySchedule.forEach(timeSlot => {
+          const [startTime, endTime] = timeSlot.split('–').map(t => t.trim());
+          
+          const recurringTask: Omit<RecurringTask, 'id' | 'createdAt'> = {
+            title: `${block.name} - ${timeSlot}`,
+            description: `Aula de ${block.name} das ${timeSlot}`,
+            priority: 'medium',
+            type: block.id,
+            recurringPattern: {
+              frequency: 'weekly',
+              interval: 1,
+              daysOfWeek: [day],
+              startTime,
+              endTime,
+              startDate: new Date(),
+              endDate: new Date(new Date().getFullYear() + 1, 11, 31) // Até o final do ano
+            },
+            isActive: true
+          };
+          
+          addRecurringTask(recurringTask);
+        });
+      }
+    });
+  };
+
   const handleGanttDateClick = (task: Task, isStartDate: boolean, clickedDate: Date) => {
     const newStartDate = isStartDate ? clickedDate : task.startDate;
-    const newDueDate = isStartDate ? clickedDate : task.dueDate;
+    const newDueDate = isStartDate ? task.dueDate : clickedDate;
     
     // Ensure start date is not after due date
-    if (newDueDate && newStartDate > newDueDate) {
+    if (newStartDate > newDueDate) {
       if (isStartDate) {
         // If clicking start date and it's after due date, adjust due date
         const updatedTask = { ...task, startDate: clickedDate, dueDate: clickedDate };
@@ -1092,303 +1271,6 @@ function App() {
     } else {
       const updatedTask = { ...task, startDate: newStartDate, dueDate: newDueDate };
       updateTaskInState(updatedTask);
-    }
-  };
-
-
-
-  // Chat functions
-  const handleChatSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
-
-    const userMessage = {
-      id: Date.now().toString(),
-      type: 'user' as const,
-      content: chatInput,
-      timestamp: new Date()
-    };
-
-    setChatMessages(prev => [...prev, userMessage]);
-    setChatInput('');
-    setIsChatLoading(true);
-
-    try {
-      console.log('Iniciando criação de tarefas com IA...');
-      console.log('API Key:', process.env.REACT_APP_GEMINI_API_KEY ? 'Presente' : 'Ausente');
-      
-      const response = await createTasksFromAI({
-        userInput: chatInput,
-        currentDate: new Date()
-      });
-
-      console.log('Resposta da IA:', response);
-
-      const aiMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai' as const,
-        content: `Criei ${response.tasks.length} tarefa(s) para você!`,
-        timestamp: new Date(),
-        aiResponse: response
-      };
-
-      setChatMessages(prev => [...prev, aiMessage]);
-
-      // Criar bloco sugerido APENAS se o usuário especificar um bloco novo
-      let targetBlock = taskTypes.find(t => t.name === response.suggestedBlock);
-      
-      // Se não especificou bloco ou o bloco não existe, usar "Random"
-      if (!response.suggestedBlock || !targetBlock) {
-        targetBlock = taskTypes.find(t => t.name === 'Random');
-        
-        // Se não existir bloco "Random", criar um
-        if (!targetBlock) {
-          const randomBlock: TaskType = {
-            id: Date.now().toString(),
-            name: 'Random',
-            color: '#5a6c7d',
-            tasks: [],
-            expanded: true,
-            expandedByColumn: columns.reduce((acc, col) => ({
-              ...acc,
-              [col.id]: col.id === 'backlog' ? true : false
-            }), {}),
-            schedule: {
-              monday: [],
-              tuesday: [],
-              wednesday: [],
-              thursday: [],
-              friday: [],
-              saturday: [],
-              sunday: []
-            }
-          };
-          setTaskTypes(prev => [...prev, randomBlock]);
-          targetBlock = randomBlock;
-        }
-      } else if (response.suggestedBlock && !targetBlock) {
-        // Só criar bloco novo se o usuário explicitamente pedir
-        const newBlock: TaskType = {
-          id: Date.now().toString(),
-          name: response.suggestedBlock,
-          color: '#5a6c7d',
-          tasks: [],
-          expanded: true,
-          expandedByColumn: columns.reduce((acc, col) => ({
-            ...acc,
-            [col.id]: col.id === 'backlog' ? true : false
-          }), {}),
-          schedule: {
-            monday: [],
-            tuesday: [],
-            wednesday: [],
-            thursday: [],
-            friday: [],
-            saturday: [],
-            sunday: []
-          }
-        };
-        setTaskTypes(prev => [...prev, newBlock]);
-        targetBlock = newBlock;
-      }
-
-      // Criar as tarefas sugeridas pela IA
-      if (response.tasks && response.tasks.length > 0) {
-        const newTasks: Task[] = response.tasks.map((aiTask: any) => {
-          // Processar datas
-          let startDate = getTodayDate();
-          let dueDate = getTodayDate();
-          
-          if (aiTask.startDate) {
-            // Criar data em UTC para evitar problemas de fuso horário
-            const [year, month, day] = aiTask.startDate.split('-').map(Number);
-            startDate = new Date(Date.UTC(year, month - 1, day)); // month - 1 porque Date.UTC usa 0-11
-          }
-          
-          if (aiTask.dueDate) {
-            // Criar data em UTC para evitar problemas de fuso horário
-            const [year, month, day] = aiTask.dueDate.split('-').map(Number);
-            dueDate = new Date(Date.UTC(year, month - 1, day)); // month - 1 porque Date.UTC usa 0-11
-          }
-          
-          // Processar compromissos com hora específica
-          if (aiTask.taskType === 'compromisso' && aiTask.appointmentTime) {
-            const appointmentDate = new Date(startDate);
-            const [hours, minutes] = aiTask.appointmentTime.split(':');
-            // Usar UTC para evitar problemas de fuso horário
-            appointmentDate.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
-            startDate = appointmentDate;
-            dueDate = appointmentDate;
-          }
-          
-          // Processar tarefas recorrentes
-          if (aiTask.taskType === 'recorrente' && aiTask.recurringTime) {
-            const [hours, minutes] = aiTask.recurringTime.split(':');
-            
-            // Para tarefas recorrentes, usar o próximo dia da semana correto
-            if (aiTask.recurringDays && aiTask.recurringDays.length > 0) {
-              const today = new Date();
-              const currentDay = today.getDay(); // 0 = domingo, 1 = segunda, etc.
-              
-              // Mapear dias da semana para números (0 = domingo, 1 = segunda, etc.)
-              const dayMap: { [key: string]: number } = {
-                'sunday': 0, 'domingo': 0,
-                'monday': 1, 'segunda': 1,
-                'tuesday': 2, 'terça': 2,
-                'wednesday': 3, 'quarta': 3,
-                'thursday': 4, 'quinta': 4,
-                'friday': 5, 'sexta': 5,
-                'saturday': 6, 'sábado': 6
-              };
-              
-              // Encontrar o próximo dia da semana correto
-              let nextOccurrence = new Date(today);
-              const targetDays = aiTask.recurringDays.map((day: string) => dayMap[day.toLowerCase()]).filter((day: number | undefined) => day !== undefined);
-              
-              if (targetDays.length > 0) {
-                // Encontrar o próximo dia da semana que está na lista
-                let daysToAdd = 0;
-                for (let i = 1; i <= 7; i++) {
-                  const checkDay = (currentDay + i) % 7;
-                  if (targetDays.includes(checkDay)) {
-                    daysToAdd = i;
-                    break;
-                  }
-                }
-                
-                nextOccurrence.setDate(today.getDate() + daysToAdd);
-                nextOccurrence.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-                
-                startDate = nextOccurrence;
-                dueDate = nextOccurrence;
-              }
-            } else {
-              // Fallback: usar o dia atual com a hora especificada
-              const recurringDate = new Date(startDate);
-              recurringDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-              startDate = recurringDate;
-              dueDate = recurringDate;
-            }
-          }
-
-          return {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            title: aiTask.title,
-            description: aiTask.description,
-            priority: aiTask.priority,
-            status: aiTask.status,
-            createdAt: new Date(),
-            startDate: startDate,
-            dueDate: dueDate,
-            taskType: aiTask.taskType,
-            blockType: aiTask.blockType || response.suggestedBlock,
-            recurringDays: aiTask.recurringDays || [],
-            recurringTime: aiTask.recurringTime || '',
-            appointmentTime: aiTask.appointmentTime || ''
-          };
-        });
-
-        // Adicionar as tarefas ao bloco correto (APENAS tarefas não recorrentes vão para o kanban)
-        const nonRecurringTasks = newTasks.filter(task => task.taskType !== 'recorrente');
-        
-        if (nonRecurringTasks.length > 0) {
-          setTaskTypes(prev => prev.map(type => 
-            type.name === targetBlock?.name
-              ? { ...type, tasks: [...type.tasks, ...nonRecurringTasks] }
-              : type
-          ));
-        }
-        
-        // Tarefas recorrentes NÃO vão para o kanban, mas vão para o gantt se tiverem data de fim
-
-        // Adicionar tarefas recorrentes ao schedule E ao estado recurringTasks
-        newTasks.forEach(task => {
-          if (task.taskType === 'recorrente' && task.recurringDays && Array.isArray(task.recurringDays) && task.recurringDays.length > 0) {
-            // Adicionar ao schedule dos blocos
-            setTaskTypes(prev => prev.map(type => {
-              if (type.name === targetBlock?.name) {
-                const updatedSchedule = { ...type.schedule };
-                const recurringDays = task.recurringDays as string[];
-                recurringDays.forEach(day => {
-                  const dayKey = day as keyof typeof updatedSchedule;
-                  const currentTasks = updatedSchedule[dayKey];
-                  if (currentTasks && Array.isArray(currentTasks)) {
-                    // Adicionar o título da tarefa ao schedule
-                    updatedSchedule[dayKey] = [...currentTasks, task.title];
-                  }
-                });
-                return { ...type, schedule: updatedSchedule };
-              }
-              return type;
-            }));
-
-            // Adicionar ao estado recurringTasks para aparecer em daily, weekly e monthly
-            const newRecurringTask: RecurringTask = {
-              id: task.id,
-              title: task.title,
-              description: task.description,
-              priority: task.priority,
-              blockType: task.blockType,
-              createdAt: task.createdAt,
-              startDate: task.startDate,
-              dueDate: task.dueDate,
-              taskType: task.taskType as 'recorrente' | 'compromisso',
-              recurringDays: task.recurringDays as string[],
-              recurringTime: task.recurringTime || '',
-              appointmentTime: task.appointmentTime || ''
-            };
-            setRecurringTasks(prev => {
-              const newState = [...prev, newRecurringTask];
-              console.log('Estado recurringTasks atualizado:', newState);
-              return newState;
-            });
-          }
-        });
-
-        console.log('Tarefas criadas:', newTasks);
-        console.log('Estado atualizado dos tipos de tarefa');
-        console.log('Schedule atualizado para tarefas recorrentes');
-        console.log('Estado final recurringTasks:', recurringTasks);
-      }
-
-    } catch (error) {
-      console.error('Erro detalhado no chat:', error);
-      
-      let errorMessage = 'Desculpe, tive um problema ao processar sua solicitação. Tente novamente.';
-      
-      if (error instanceof Error) {
-        if (error.message.includes('API key')) {
-          errorMessage = 'Erro de configuração da API. Verifique as configurações.';
-        } else if (error.message.includes('network')) {
-          errorMessage = 'Problema de conexão. Verifique sua internet.';
-        } else if (error.message.includes('rate limit')) {
-          errorMessage = 'Muitas solicitações. Aguarde um momento.';
-        }
-      }
-      
-      const errorMsg = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai' as const,
-        content: errorMessage,
-        timestamp: new Date()
-      };
-      setChatMessages(prev => [...prev, errorMsg]);
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-
-  const toggleChat = () => {
-    setChatOpen(!chatOpen);
-    if (!chatOpen) {
-      // Adicionar mensagem de boas-vindas quando abrir o chat
-      const welcomeMessage = {
-        id: Date.now().toString(),
-        type: 'ai' as const,
-        content: 'Olá! Sou seu assistente de produtividade. Como posso ajudar você hoje?',
-        timestamp: new Date()
-      };
-      setChatMessages([welcomeMessage]);
     }
   };
 
@@ -1410,7 +1292,7 @@ function App() {
       setTaskTypes(prev => prev.map(block => 
         block.id === editingBlock.id ? { 
           ...editingBlock, 
-          name: editingBlock.name,
+          name: newTask.type,
           color: selectedBlockColor,
           schedule: blockSchedule 
         } : block
@@ -1419,7 +1301,7 @@ function App() {
       const newBlock = {
         ...editingBlock,
         id: `block_${Date.now()}`,
-        name: editingBlock.name,
+        name: newTask.type,
         color: selectedBlockColor,
         tasks: [],
         schedule: blockSchedule
@@ -1438,7 +1320,7 @@ function App() {
       sunday: []
     });
     setSelectedBlockColor('#5a6c7d');
-    setNewTask({ ...newTask, title: '' });
+    setNewTask({ ...newTask, type: '' });
     setScheduleMessage('');
   };
 
@@ -1487,184 +1369,6 @@ function App() {
     return scheduleValues.some(day => day && day.length > 0);
   };
 
-  // Função para gerar instâncias de tarefas recorrentes para um dia específico
-  const getRecurringTasksForDay = (date: Date): Task[] => {
-    const instances: Task[] = [];
-    
-    // Debug: verificar se há tarefas recorrentes
-    console.log('getRecurringTasksForDay - date:', date, 'recurringTasks count:', recurringTasks.length);
-    console.log('recurringTasks:', recurringTasks);
-    
-    // Se não há tarefas recorrentes, retornar array vazio
-    if (recurringTasks.length === 0) {
-      console.log('Nenhuma tarefa recorrente encontrada');
-      return instances;
-    }
-    
-    recurringTasks.forEach(recurringTask => {
-      console.log('Processing recurringTask:', recurringTask.title, 'recurringDays:', recurringTask.recurringDays, 'startDate:', recurringTask.startDate, 'dueDate:', recurringTask.dueDate);
-      
-      if (!recurringTask.recurringDays || recurringTask.recurringDays.length === 0) {
-        console.log('Skipping task without recurringDays:', recurringTask.title);
-        return;
-      }
-      
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-      console.log('Checking task:', recurringTask.title, 'dayName:', dayName, 'recurringDays:', recurringTask.recurringDays);
-      
-      // Verificar se é um dia de recorrência
-      if (recurringTask.recurringDays.includes(dayName)) {
-        console.log('Day matches for task:', recurringTask.title);
-        
-        // Verificar se a data está dentro do intervalo de recorrência
-        if (recurringTask.startDate) {
-          const startDate = new Date(recurringTask.startDate);
-          startDate.setHours(0, 0, 0, 0);
-          const currentDate = new Date(date);
-          currentDate.setHours(0, 0, 0, 0);
-          
-          if (currentDate < startDate) {
-            console.log('Date before startDate for task:', recurringTask.title, 'date:', currentDate, 'startDate:', startDate);
-            return; // Pular se ainda não chegou a data de início
-          }
-        }
-        
-        // Se tem data de fim, verificar se já passou
-        if (recurringTask.dueDate) {
-          const dueDate = new Date(recurringTask.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          const currentDate = new Date(date);
-          currentDate.setHours(0, 0, 0, 0);
-          
-          if (currentDate > dueDate) {
-            console.log('Date after dueDate for task:', recurringTask.title, 'date:', currentDate, 'dueDate:', dueDate);
-            return; // Pular se já passou a data de fim
-          }
-        }
-        
-        console.log('Creating instance for task:', recurringTask.title, 'on date:', date);
-        
-        const instance: Task = {
-          id: `${recurringTask.id}-${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`,
-          title: recurringTask.title,
-          description: recurringTask.description,
-          priority: recurringTask.priority,
-          status: 'to-do', // Tarefas recorrentes sempre começam como "to-do"
-          createdAt: new Date(),
-          startDate: date,
-          dueDate: date,
-          taskType: recurringTask.taskType,
-          blockType: recurringTask.blockType,
-          recurringDays: recurringTask.recurringDays,
-          recurringTime: recurringTask.recurringTime,
-          appointmentTime: recurringTask.appointmentTime
-        };
-        instances.push(instance);
-      }
-    });
-    
-    console.log('getRecurringTasksForDay - returning instances:', instances.length);
-    return instances;
-  };
-
-  // Função para gerar instâncias de tarefas recorrentes para um mês específico
-  const getRecurringTasksForMonth = (year: number, month: number): Task[] => {
-    const instances: Task[] = [];
-    
-    // Debug: verificar se há tarefas recorrentes
-    console.log('getRecurringTasksForMonth - year:', year, 'month:', month, 'recurringTasks count:', recurringTasks.length);
-    console.log('recurringTasks:', recurringTasks);
-    
-    recurringTasks.forEach(recurringTask => {
-      console.log('Processing recurringTask:', recurringTask.title, 'recurringDays:', recurringTask.recurringDays, 'startDate:', recurringTask.startDate, 'dueDate:', recurringTask.dueDate);
-      
-      if (!recurringTask.recurringDays || recurringTask.recurringDays.length === 0) {
-        console.log('Skipping task without recurringDays:', recurringTask.title);
-        return;
-      }
-      
-      // Verificar se o mês está dentro do intervalo de recorrência
-      if (recurringTask.startDate && recurringTask.dueDate) {
-        const startDate = new Date(recurringTask.startDate);
-        startDate.setHours(0, 0, 0, 0);
-        const dueDate = new Date(recurringTask.dueDate);
-        dueDate.setHours(0, 0, 0, 0);
-        
-        // Se o mês está fora do intervalo, não criar instâncias
-        const monthStart = new Date(year, month, 1);
-        monthStart.setHours(0, 0, 0, 0);
-        const monthEnd = new Date(year, month + 1, 0);
-        monthEnd.setHours(23, 59, 59, 999);
-        
-        if (monthEnd < startDate || monthStart > dueDate) {
-          console.log('Month outside range for task:', recurringTask.title, 'monthStart:', monthStart, 'monthEnd:', monthEnd, 'startDate:', startDate, 'dueDate:', dueDate);
-          return;
-        }
-      }
-      
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      console.log('Processing task:', recurringTask.title, 'daysInMonth:', daysInMonth);
-      
-      for (let day = 1; day <= daysInMonth; day++) {
-        const date = new Date(year, month, day);
-        const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-        
-        // Verificar se é um dia de recorrência E se está dentro do período
-        if (recurringTask.recurringDays.includes(dayName)) {
-          console.log('Day matches for task:', recurringTask.title, 'day:', day, 'dayName:', dayName);
-          
-          // Se tem data de início, verificar se já passou
-          if (recurringTask.startDate) {
-            const startDate = new Date(recurringTask.startDate);
-            startDate.setHours(0, 0, 0, 0);
-            const currentDate = new Date(date);
-            currentDate.setHours(0, 0, 0, 0);
-            
-            if (currentDate < startDate) {
-              console.log('Date before startDate for task:', recurringTask.title, 'date:', currentDate, 'startDate:', startDate);
-              continue; // Pular se ainda não chegou a data de início
-            }
-          }
-          
-          // Se tem data de fim, verificar se já passou
-          if (recurringTask.dueDate) {
-            const dueDate = new Date(recurringTask.dueDate);
-            dueDate.setHours(0, 0, 0, 0);
-            const currentDate = new Date(date);
-            currentDate.setHours(0, 0, 0, 0);
-            
-            if (currentDate > dueDate) {
-              console.log('Date after dueDate for task:', recurringTask.title, 'date:', currentDate, 'dueDate:', dueDate);
-              continue; // Pular se já passou a data de fim
-            }
-          }
-          
-          console.log('Creating instance for task:', recurringTask.title, 'on date:', date);
-          
-          const instance: Task = {
-            id: `${recurringTask.id}-${year}-${month}-${day}`,
-            title: recurringTask.title,
-            description: recurringTask.description,
-            priority: recurringTask.priority,
-            status: 'to-do', // Tarefas recorrentes sempre começam como "to-do"
-            createdAt: new Date(),
-            startDate: date,
-            dueDate: date,
-            taskType: recurringTask.taskType,
-            blockType: recurringTask.blockType,
-            recurringDays: recurringTask.recurringDays,
-            recurringTime: recurringTask.recurringTime,
-            appointmentTime: recurringTask.appointmentTime
-          };
-          instances.push(instance);
-        }
-      }
-    });
-    
-    console.log('getRecurringTasksForMonth - returning instances:', instances.length);
-    return instances;
-  };
-
   // Function to expand a specific block from schedule
   const expandBlockFromSchedule = (blockId: string) => {
     setExpandedBlockFromSchedule(blockId);
@@ -1683,33 +1387,6 @@ function App() {
             [col.id]: false
           }), {})
     })));
-  };
-
-  // Remove an item from a block's schedule for a given day
-  const handleDeleteScheduleItem = (
-    blockId: string,
-    day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday',
-    value: string
-  ) => {
-    // Remover do schedule
-    setTaskTypes(prev => prev.map(block => {
-      if (block.id !== blockId || !block.schedule) return block;
-      const currentDayValues = block.schedule[day] || [];
-      const updatedDayValues = currentDayValues.filter(entry => entry !== value);
-      const updatedSchedule = { ...block.schedule, [day]: updatedDayValues };
-      return { ...block, schedule: updatedSchedule };
-    }));
-    
-    // Remover do estado recurringTasks se for uma tarefa recorrente
-    setRecurringTasks(prev => {
-      const updatedRecurringTasks = prev.filter(task => task.title !== value);
-      console.log('Tarefa recorrente removida do estado:', value);
-      console.log('Estado recurringTasks atualizado:', updatedRecurringTasks);
-      return updatedRecurringTasks;
-    });
-    
-    setScheduleMessage('Item removido do schedule e das visualizações com sucesso.');
-    setTimeout(() => setScheduleMessage(''), 1500);
   };
 
   // Function to clear the expanded block and restore previous state
@@ -2003,14 +1680,12 @@ function App() {
           </Box>
         </Box>
         
-
-        
-        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1.5 }}>
           <Button
             variant="outlined"
             startIcon={<SettingsIcon />}
             onClick={handleOpenBlocksDialog}
-            sx={{
+              sx={{
               backgroundColor: 'transparent',
               color: '#4a5568',
               borderColor: '#8fa3b3',
@@ -2064,21 +1739,23 @@ function App() {
             manage tasks
           </Button>
           <Button
-            variant="contained"
+            variant="outlined"
             startIcon={<AddIcon />}
-            onClick={() => handleAddTask(undefined, 'backlog')}
+            onClick={() => setOpenRecurringTasksDialog(true)}
             sx={{
-              backgroundColor: '#5a6c7d',
-              color: '#ffffff',
+              backgroundColor: 'transparent',
+              color: '#4a5568',
+              borderColor: '#8fa3b3',
               '&:hover': { 
-                backgroundColor: '#4a5568'
+                backgroundColor: 'rgba(90,108,125,0.1)',
+                borderColor: '#5a6c7d'
               },
               px: 2,
               py: 0.75,
               fontSize: '0.875rem'
             }}
           >
-            add new task
+            tarefas recorrentes
           </Button>
         </Box>
       </Box>
@@ -2164,86 +1841,39 @@ function App() {
         {task.description}
       </Typography>
       
-      {/* Recurring Task Indicator */}
-      {task.taskType !== 'geral' && (
-        <Box sx={{ mb: 1.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <Chip
-              label="🔄 recorrente"
+              label={task.priority}
               size="small"
-              sx={{
-                backgroundColor: '#e6fffa',
-                color: '#319795',
-                border: '1px solid #81e6d9',
-                fontSize: '0.7rem',
-                height: 18
+                  sx={{
+                backgroundColor: `${getPriorityColor(task.priority)}20`,
+                color: getPriorityColor(task.priority),
+                border: `1px solid ${getPriorityColor(task.priority)}50`,
+                fontSize: '0.75rem',
+                height: 20
               }}
             />
-            {task.recurringDays && task.recurringDays.length > 0 && (
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                {task.recurringDays.map((day) => {
-                  const dayLabels: Record<string, string> = {
-                    monday: 'Seg',
-                    tuesday: 'Ter',
-                    wednesday: 'Qua',
-                    thursday: 'Qui',
-                    friday: 'Sex',
-                    saturday: 'Sáb',
-                    sunday: 'Dom'
-                  };
-                  return (
-                    <Chip
-                      key={day}
-                      label={dayLabels[day] || day}
-                      size="small"
-                      sx={{
-                        backgroundColor: '#f7fafc',
-                        color: '#4a5568',
-                        border: '1px solid #e2e8f0',
-                        fontSize: '0.65rem',
-                        height: 16,
-                        minWidth: 28
-                      }}
-                    />
-                  );
-                })}
-              </Box>
-            )}
-            {task.recurringTime && (
+            {task.isRecurring && (
               <Chip
-                label={`⏰ ${task.recurringTime}`}
+                label="🔄"
                 size="small"
                 sx={{
-                  backgroundColor: '#fff5f5',
-                  color: '#c53030',
-                  border: '1px solid #fed7d7',
-                  fontSize: '0.7rem',
-                  height: 18
+                  backgroundColor: '#e2e8f0',
+                  color: '#4a5568',
+                  fontSize: '0.75rem',
+                  height: 20,
+                  minWidth: 20
                 }}
               />
             )}
           </Box>
+          {task.dueDate && (
+            <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
+              {task.dueDate.toLocaleDateString()}
+            </Typography>
+          )}
         </Box>
-      )}
-      
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Chip
-          label={task.priority}
-          size="small"
-              sx={{
-            backgroundColor: `${getPriorityColor(task.priority)}20`,
-            color: getPriorityColor(task.priority),
-            border: `1px solid ${getPriorityColor(task.priority)}50`,
-            fontSize: '0.75rem',
-            height: 20
-          }}
-        />
-        {task.dueDate && (
-          <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
-            {task.dueDate.toLocaleDateString()}
-                    </Typography>
-        )}
-              </Box>
     </Box>
   );
 
@@ -2734,7 +2364,7 @@ function App() {
                   label={task.blockType}
                   size="small"
                               sx={{
-                    backgroundColor: '#f1f5f8',
+                    backgroundColor: '#e2e8f0',
                     color: '#4a5568',
                     fontSize: '0.75rem',
                     height: 20
@@ -2783,199 +2413,6 @@ function App() {
       </Box>
     );
   };
-
-
-
-  // Chat Component
-  const renderChat = () => (
-    <>
-      {/* Chat Toggle Button */}
-      <Box
-        sx={{
-          position: 'fixed',
-          bottom: 20,
-          right: 20,
-          zIndex: 1000
-        }}
-      >
-        <IconButton
-          onClick={toggleChat}
-          sx={{
-            backgroundColor: chatOpen ? '#5a6c7d' : '#5a6c7d',
-            color: '#ffffff',
-            width: 56,
-            height: 56,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            '&:hover': {
-              backgroundColor: chatOpen ? '#4a5568' : '#4a5568',
-              transform: 'scale(1.05)'
-            },
-            transition: 'all 0.2s'
-          }}
-        >
-          {chatOpen ? <CloseIcon /> : <AutoAwesomeIcon />}
-        </IconButton>
-      </Box>
-
-      {/* Chat Window */}
-      {chatOpen && (
-        <Box
-          sx={{
-            position: 'fixed',
-            bottom: 90,
-            right: 20,
-            width: 350,
-            height: 500,
-            backgroundColor: '#ffffff',
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-            border: '1px solid #f1f5f8',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column'
-          }}
-        >
-          {/* Chat Header */}
-          <Box
-            sx={{
-              backgroundColor: '#5a6c7d',
-              color: '#ffffff',
-              p: 2,
-              borderTopLeftRadius: 8,
-              borderTopRightRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1
-            }}
-          >
-            <AutoAwesomeIcon sx={{ fontSize: 20 }} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Assistente IA
-            </Typography>
-          </Box>
-
-          {/* Chat Messages */}
-          <Box
-            sx={{
-              flex: 1,
-              p: 2,
-              overflow: 'auto',
-              backgroundColor: '#f8fafb',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 1
-            }}
-          >
-            {chatMessages.map((message) => (
-              <Box
-                key={message.id}
-                sx={{
-                  display: 'flex',
-                  justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start',
-                  mb: 1
-                }}
-              >
-                <Box
-                  sx={{
-                    maxWidth: '80%',
-                    p: 1.5,
-                    borderRadius: 2,
-                    backgroundColor: message.type === 'user' ? '#5a6c7d' : '#ffffff',
-                    color: message.type === 'user' ? '#ffffff' : '#4a5568',
-                    border: message.type === 'ai' ? '1px solid #f1f5f8' : 'none',
-                    boxShadow: message.type === 'ai' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                    {message.content}
-                  </Typography>
-                  <Typography variant="caption" sx={{ 
-                    opacity: 0.7, 
-                    display: 'block', 
-                    mt: 0.5,
-                    fontSize: '0.7rem'
-                  }}>
-                    {message.timestamp.toLocaleTimeString('pt-BR', { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </Typography>
-                </Box>
-              </Box>
-            ))}
-            
-            {isChatLoading && (
-              <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 1 }}>
-                <Box
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 2,
-                    backgroundColor: '#ffffff',
-                    border: '1px solid #e2e8f0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1
-                  }}
-                >
-                  <CircularProgress size={16} sx={{ color: '#5a6c7d' }} />
-                  <Typography variant="body2" sx={{ color: '#6b7d8f', fontSize: '0.875rem' }}>
-                    Pensando...
-                  </Typography>
-                </Box>
-              </Box>
-            )}
-          </Box>
-
-                  {/* Chat Input */}
-        <Box
-          component="form"
-          onSubmit={handleChatSubmit}
-          sx={{
-            p: 2,
-            borderTop: '1px solid #e2e8f0',
-            backgroundColor: '#ffffff'
-          }}
-        >
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Digite sua mensagem..."
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              disabled={isChatLoading}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  backgroundColor: '#f8fafb',
-                  '&:hover .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#5a6c7d'
-                  },
-                  '&:focus .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#5a6c7d'
-                  }
-                }
-              }}
-            />
-            <IconButton
-              type="submit"
-              disabled={!chatInput.trim() || isChatLoading}
-              sx={{
-                backgroundColor: '#5a6c7d',
-                color: '#ffffff',
-                '&:hover': { backgroundColor: '#4a5568' },
-                '&:disabled': { backgroundColor: '#cbd5e0' }
-              }}
-            >
-              <AutoAwesomeIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Box>
-          
-
-        </Box>
-        </Box>
-      )}
-    </>
-  );
 
 
 
@@ -3041,7 +2478,7 @@ function App() {
             }}
           />
           
-                    <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <FormControl fullWidth>
               <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>priority</InputLabel>
               <Select
@@ -3067,37 +2504,59 @@ function App() {
               </Select>
             </FormControl>
             
-            {/* Só mostrar status se for tarefa geral */}
-            {newTask.taskType === 'geral' && (
-              <FormControl fullWidth>
-                <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>status</InputLabel>
-                <Select
-                  value={newTask.status}
-                  onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
-                  sx={{
-                    backgroundColor: '#ffffff',
-                    color: '#4a5568',
-                    '& .MuiOutlinedInput-notchedOutline': {
-                      borderColor: '#8fa3b3'
-                    },
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                      borderColor: '#5a6c7d'
-                    },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                      borderColor: '#5a6c7d'
-                    }
-                  }}
-                >
-                  <MenuItem value="backlog">backlog</MenuItem>
-                  <MenuItem value="to-do">to do</MenuItem>
-                  <MenuItem value="in-progress">in progress</MenuItem>
-                  <MenuItem value="done">done</MenuItem>
-                </Select>
-              </FormControl>
-            )}
-          </Box>
+            <FormControl fullWidth>
+              <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>status</InputLabel>
+              <Select
+                value={newTask.status}
+                onChange={(e) => setNewTask({ ...newTask, status: e.target.value })}
+                sx={{
+                  backgroundColor: '#ffffff',
+                  color: '#4a5568',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  }
+                }}
+              >
+                <MenuItem value="backlog">backlog</MenuItem>
+                <MenuItem value="to-do">to do</MenuItem>
+                <MenuItem value="in-progress">in progress</MenuItem>
+                <MenuItem value="done">done</MenuItem>
+              </Select>
+            </FormControl>
+                  </Box>
           
           <Box sx={{ display: 'flex', gap: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>type</InputLabel>
+              <Select
+                value={newTask.type}
+                onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
+                sx={{
+                  backgroundColor: '#ffffff',
+                  color: '#4a5568',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#8fa3b3'
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#5a6c7d'
+                  }
+                }}
+              >
+                {taskTypes.map(type => (
+                  <MenuItem key={type.id} value={type.id}>{type.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
             <TextField
               label="start date"
               type="date"
@@ -3159,266 +2618,23 @@ function App() {
                 }
               }}
             />
-          </Box>
-          
-          {/* Task Type Section */}
-          <Box sx={{ 
-            border: '1px solid #e2e8f0', 
-            borderRadius: 1, 
-            p: 2, 
-            backgroundColor: '#f8fafb' 
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-              <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
-                tipo da task
-              </Typography>
-              <FormControl>
-                <Select
-                  value={newTask.taskType}
-                  onChange={(e) => setNewTask({ 
-                    ...newTask, 
-                    taskType: e.target.value as 'geral' | 'recorrente' | 'compromisso',
-                    recurringDays: e.target.value !== 'geral' ? newTask.recurringDays || [] : [],
-                    recurringTime: e.target.value !== 'geral' ? newTask.recurringTime || '' : '',
-                    appointmentTime: e.target.value === 'compromisso' ? newTask.appointmentTime || '' : ''
-                  })}
-                  size="small"
-                  sx={{
-                    backgroundColor: '#ffffff',
-                    color: '#4a5568',
-                    minWidth: 120,
-                    '& .MuiOutlinedInput-notchedOutline': {
-                      borderColor: '#8fa3b3'
-                    }
-                  }}
-                >
-                  <MenuItem value="geral">geral</MenuItem>
-                  <MenuItem value="recorrente">recorrente</MenuItem>
-                  <MenuItem value="compromisso">compromisso</MenuItem>
-                </Select>
-              </FormControl>
-            </Box>
-            
-            {newTask.taskType !== 'geral' && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {/* Recurring Days */}
-                <Box>
-                  <Typography variant="body2" sx={{ color: '#6b7d8f', mb: 1 }}>
-                    dias da semana:
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {[
-                      { value: 'monday', label: 'Segunda' },
-                      { value: 'tuesday', label: 'Terça' },
-                      { value: 'wednesday', label: 'Quarta' },
-                      { value: 'thursday', label: 'Quinta' },
-                      { value: 'friday', label: 'Sexta' },
-                      { value: 'saturday', label: 'Sábado' },
-                      { value: 'sunday', label: 'Domingo' }
-                    ].map((day) => (
-                      <Chip
-                        key={day.value}
-                        label={day.label}
-                        onClick={() => {
-                          const currentDays = newTask.recurringDays || [];
-                          const newDays = currentDays.includes(day.value)
-                            ? currentDays.filter(d => d !== day.value)
-                            : [...currentDays, day.value];
-                          setNewTask({ ...newTask, recurringDays: newDays });
-                        }}
-                        sx={{
-                          backgroundColor: (newTask.recurringDays || []).includes(day.value) 
-                            ? '#5a6c7d' 
-                            : '#e2e8f0',
-                          color: (newTask.recurringDays || []).includes(day.value) 
-                            ? '#ffffff' 
-                            : '#4a5568',
-                          cursor: 'pointer',
-                          '&:hover': {
-                            backgroundColor: (newTask.recurringDays || []).includes(day.value) 
-                              ? '#4a5568' 
-                              : '#cbd5e0'
-                          }
-                        }}
-                      />
-                    ))}
-                  </Box>
-                </Box>
-                
-                {/* Recurring Time */}
-                <Box>
-                  <Typography variant="body2" sx={{ color: '#6b7d8f', mb: 1 }}>
-                    horário:
-                  </Typography>
-                  <TextField
-                    placeholder="ex: 15:00"
-                    value={newTask.recurringTime || ''}
-                    onChange={(e) => setNewTask({ ...newTask, recurringTime: e.target.value })}
-                    size="small"
-                    sx={{
-                      width: 120,
-                      '& .MuiOutlinedInput-root': {
-                        backgroundColor: '#ffffff',
-                        color: '#4a5568',
-                        borderColor: '#8fa3b3',
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: '#5a6c7d'
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: '#5a6c7d'
-                        }
-                      }
-                    }}
-                  />
-                </Box>
-
-                {/* Recurring Date Range - Só para tarefas recorrentes */}
-                {newTask.taskType === 'recorrente' && (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#6b7d8f', mb: 1 }}>
-                      período de recorrência:
-                    </Typography>
-                    
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <TextField
-                        label="data início"
-                        type="date"
-                        value={newTask.startDate ? newTask.startDate.toISOString().split('T')[0] : ''}
-                        onChange={(e) => setNewTask({ ...newTask, startDate: new Date(e.target.value) })}
-                        size="small"
-                        sx={{
-                          backgroundColor: '#ffffff',
-                          color: '#4a5568',
-                          '& .MuiOutlinedInput-root': {
-                            borderColor: '#8fa3b3',
-                            '&:hover .MuiOutlinedInput-notchedOutline': {
-                              borderColor: '#5a6c7d'
-                            },
-                            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                              borderColor: '#5a6c7d'
-                            }
-                          },
-                          '& .MuiInputLabel-root': {
-                            color: '#6b7d8f',
-                            backgroundColor: '#ffffff',
-                            px: 0.5
-                          },
-                          '& .MuiInputBase-input': {
-                            color: '#4a5568'
-                          }
-                        }}
-                      />
-                      
-                      <TextField
-                        label="data fim (opcional)"
-                        type="date"
-                        value={newTask.dueDate ? newTask.dueDate.toISOString().split('T')[0] : ''}
-                        onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value ? new Date(e.target.value) : undefined })}
-                        size="small"
-                        sx={{
-                          backgroundColor: '#ffffff',
-                          color: '#4a5568',
-                          '& .MuiOutlinedInput-root': {
-                            borderColor: '#8fa3b3',
-                            '&:hover .MuiOutlinedInput-notchedOutline': {
-                              borderColor: '#5a6c7d'
-                            },
-                            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                              borderColor: '#5a6c7d'
-                            }
-                          },
-                          '& .MuiInputLabel-root': {
-                            color: '#6b7d8f',
-                            backgroundColor: '#ffffff',
-                            px: 0.5
-                          },
-                          '& .MuiInputBase-input': {
-                            color: '#4a5568'
-                          }
-                        }}
-                      />
-                    </Box>
-                    
-                    <Typography variant="caption" sx={{ color: '#8fa3b3', fontStyle: 'italic' }}>
-                      💡 Deixe a data fim em branco para recorrência indefinida
-                    </Typography>
-                  </Box>
-                )}
-                
-                {/* Appointment Time for Compromissos */}
-                {newTask.taskType === 'compromisso' && (
-                  <Box>
-                    <Typography variant="body2" sx={{ color: '#6b7d8f', mb: 1 }}>
-                      hora do compromisso:
-                    </Typography>
-                    <TextField
-                      placeholder="ex: 15:00"
-                      value={newTask.appointmentTime || ''}
-                      onChange={(e) => setNewTask({ ...newTask, appointmentTime: e.target.value })}
-                      size="small"
-                      sx={{
-                        width: 120,
-                        '& .MuiOutlinedInput-root': {
-                          backgroundColor: '#ffffff',
-                          color: '#4a5568',
-                          borderColor: '#8fa3b3',
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: '#5a6c7d'
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: '#5a6c7d'
-                          }
-                        }
-                      }}
-                    />
-                  </Box>
-                )}
+      </Box>
               </Box>
-            )}
-          </Box>
-        </Box>
 
-        <Box sx={{ display: 'flex', gap: 2, mt: 4, justifyContent: 'space-between' }}>
-          {/* Botão de deletar (só aparece quando editando uma tarefa existente) */}
-          {selectedTask && (
-            <Button
-              onClick={() => {
-                if (selectedTask) {
-                  handleDeleteTask(selectedTask.id);
-                  handleCloseTaskDialog();
-                }
-              }}
-              variant="outlined"
-              color="error"
-              sx={{ 
-                borderColor: '#ef4444',
-                color: '#ef4444',
-                '&:hover': { 
-                  borderColor: '#dc2626',
-                  backgroundColor: '#fef2f2'
-                }
-              }}
-            >
-              delete
-            </Button>
-          )}
-          
-          {/* Botões de ação (cancelar e salvar/atualizar) */}
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button onClick={handleCloseTaskDialog} sx={{ color: '#6b7d8f' }}>
-              cancel
-            </Button>
-            <Button
-              onClick={handleSaveTask}
-              variant="contained"
-              sx={{ 
-                backgroundColor: '#5a6c7d',
-                '&:hover': { backgroundColor: '#4a5568' }
-              }}
-            >
-              {selectedTask ? 'update' : 'create'}
-            </Button>
-          </Box>
+        <Box sx={{ display: 'flex', gap: 2, mt: 4, justifyContent: 'flex-end' }}>
+          <Button onClick={handleCloseTaskDialog} sx={{ color: '#6b7d8f' }}>
+            cancel
+          </Button>
+          <Button
+            onClick={handleSaveTask}
+            variant="contained"
+            sx={{ 
+              backgroundColor: '#5a6c7d',
+              '&:hover': { backgroundColor: '#4a5568' }
+            }}
+          >
+            {selectedTask ? 'update' : 'create'}
+          </Button>
         </Box>
       </Box>
     </Dialog>
@@ -3471,9 +2687,9 @@ function App() {
                     }
                   }}
                         sx={{
-                                border: '1px solid #f1f5f8',
-            borderRadius: 1,
-            backgroundColor: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 1,
+                    backgroundColor: '#ffffff',
                     cursor: 'grab',
                     transition: 'all 0.2s',
                     '&:hover': {
@@ -3743,7 +2959,7 @@ function App() {
                               sunday: block.schedule?.sunday || []
                             });
                             setSelectedBlockColor(block.color);
-                            setNewBlockName(block.name);
+                            setNewTask({ ...newTask, type: block.name });
                           }}
                           sx={{ 
                             color: '#5a6c7d',
@@ -3782,8 +2998,8 @@ function App() {
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
             <TextField
               label={editingBlock ? "nome do block" : "block name"}
-              value={editingBlock ? editingBlock.name : newBlockName}
-              onChange={(e) => editingBlock ? setEditingBlock({ ...editingBlock, name: e.target.value }) : setNewBlockName(e.target.value)}
+              value={newTask.type}
+              onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
               placeholder={editingBlock ? "nome do block..." : "enter block name..."}
               sx={{
                 flex: 1,
@@ -3810,7 +3026,7 @@ function App() {
             <Button
               variant="contained"
               onClick={editingBlock ? handleSaveBlock : handleAddBlock}
-              disabled={editingBlock ? !editingBlock.name?.trim() : !newBlockName?.trim()}
+              disabled={!newTask.type.trim()}
               sx={{ 
                 backgroundColor: '#5a6c7d',
                 color: '#ffffff',
@@ -3835,7 +3051,7 @@ function App() {
                     sunday: []
                   });
                   setSelectedBlockColor('#5a6c7d');
-                  setNewBlockName('');
+                  setNewTask({ ...newTask, type: '' });
                 }}
                 sx={{ 
                   borderColor: '#8fa3b3',
@@ -4051,7 +3267,7 @@ function App() {
             
             {/* Clear All Schedule Button */}
             {Object.values(blockSchedule).some(day => day.length > 0) && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 2 }}>
                 <Button
                   variant="outlined"
                   color="error"
@@ -4076,6 +3292,28 @@ function App() {
                 >
                   limpar todos os horários
                 </Button>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  size="small"
+                  onClick={() => {
+                    if (editingBlock) {
+                      createRecurringTaskFromSchedule(editingBlock);
+                      setScheduleMessage('Tarefas recorrentes criadas com sucesso!');
+                      setTimeout(() => setScheduleMessage(''), 3000);
+                    }
+                  }}
+                  sx={{
+                    borderColor: '#5a6c7d',
+                    color: '#5a6c7d',
+                    '&:hover': {
+                      borderColor: '#4a5568',
+                      backgroundColor: 'rgba(90,108,125,0.1)'
+                    }
+                  }}
+                >
+                  criar tarefas recorrentes
+                </Button>
               </Box>
             )}
           </Box>
@@ -4089,6 +3327,1261 @@ function App() {
                 </Box>
     </Dialog>
   );
+
+  const renderRecurringTasksDialog = () => {
+
+    const handleSaveRecurringTask = () => {
+      if (!newRecurringTask.title.trim() || !newRecurringTask.type) return;
+      
+      if (editingRecurringTask) {
+        updateRecurringTask(editingRecurringTask.id, newRecurringTask);
+        setEditingRecurringTask(null);
+      } else {
+        addRecurringTask(newRecurringTask);
+      }
+      
+      setNewRecurringTask({
+        title: '',
+        description: '',
+        priority: 'medium',
+        type: taskTypes.length > 0 ? taskTypes[0].id : 'feature',
+        recurringPattern: {
+          frequency: 'weekly',
+          interval: 1,
+          daysOfWeek: ['monday'],
+          startDate: new Date(),
+          endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+        },
+        isActive: true
+      });
+    };
+
+    const handleEditRecurringTask = (task: RecurringTask) => {
+      setEditingRecurringTask(task);
+      setNewRecurringTask({
+        title: task.title,
+        description: task.description,
+        priority: task.priority,
+        type: task.type,
+        recurringPattern: task.recurringPattern,
+        isActive: task.isActive
+      });
+    };
+
+    const handleCancelEdit = () => {
+      setEditingRecurringTask(null);
+      setNewRecurringTask({
+        title: '',
+        description: '',
+        priority: 'medium',
+        type: taskTypes.length > 0 ? taskTypes[0].id : 'feature',
+        recurringPattern: {
+          frequency: 'weekly',
+          interval: 1,
+          daysOfWeek: ['monday'],
+          startDate: new Date(),
+          endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+        },
+        isActive: true
+      });
+    };
+
+    const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const dayLabels = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+
+    return (
+      <Dialog open={openRecurringTasksDialog} onClose={() => setOpenRecurringTasksDialog(false)} maxWidth="lg" fullWidth>
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
+            {editingRecurringTask ? 'editar tarefa recorrente' : 'gerenciar tarefas recorrentes'}
+          </Typography>
+          
+          {/* Existing Recurring Tasks */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="subtitle1" sx={{ color: '#4a5568', mb: 2, fontWeight: 500 }}>
+              tarefas recorrentes existentes
+            </Typography>
+            
+            {recurringTasks.length === 0 ? (
+              <Typography variant="body2" sx={{ color: '#6b7d8f', fontStyle: 'italic' }}>
+                nenhuma tarefa recorrente criada ainda
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {recurringTasks.map((task) => (
+                  <Box
+                    key={task.id}
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      p: 2,
+                      backgroundColor: '#f8fafb',
+                      borderRadius: 1,
+                      border: '1px solid #e2e8f0'
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+                      <Box
+                        sx={{ 
+                          width: 12,
+                          height: 12,
+                          backgroundColor: task.isActive ? '#48bb78' : '#e53e3e',
+                          borderRadius: '50%'
+                        }}
+                      />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                          {task.title}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
+                          {task.description}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+                          <Chip
+                            label={task.priority}
+                            size="small"
+                            sx={{
+                              backgroundColor: `${getPriorityColor(task.priority)}20`,
+                              color: getPriorityColor(task.priority),
+                              border: `1px solid ${getPriorityColor(task.priority)}50`,
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                          <Chip
+                            label={taskTypes.find(t => t.id === task.type)?.name || 'unknown'}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#e2e8f0',
+                              color: '#4a5568',
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                          <Chip
+                            label={`${task.recurringPattern.frequency} (${task.recurringPattern.interval})`}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#e2e8f0',
+                              color: '#4a5568',
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                        </Box>
+                      </Box>
+                    </Box>
+                    
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleEditRecurringTask(task)}
+                        sx={{ 
+                          color: '#5a6c7d',
+                          '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+                        }}
+                      >
+                        <EditIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => deleteRecurringTask(task.id)}
+                        sx={{ 
+                          color: '#e53e3e',
+                          '&:hover': { backgroundColor: 'rgba(229,62,62,0.1)' }
+                        }}
+                      >
+                        <DeleteIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+          
+          {/* Add/Edit Recurring Task Form */}
+          <Box sx={{ 
+            pt: 2, 
+            borderTop: '1px solid #e2e8f0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2
+          }}>
+            <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+              {editingRecurringTask ? 'editar tarefa recorrente' : 'adicionar nova tarefa recorrente'}
+            </Typography>
+            
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="título"
+                value={newRecurringTask.title}
+                onChange={(e) => setNewRecurringTask({ ...newRecurringTask, title: e.target.value })}
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#ffffff',
+                    color: '#4a5568',
+                    borderColor: '#8fa3b3',
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    }
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#6b7d8f'
+                  },
+                  '& .MuiInputBase-input': {
+                    color: '#4a5568'
+                  }
+                }}
+              />
+              
+              <TextField
+                label="descrição"
+                value={newRecurringTask.description}
+                onChange={(e) => setNewRecurringTask({ ...newRecurringTask, description: e.target.value })}
+                fullWidth
+                multiline
+                rows={2}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#ffffff',
+                    color: '#4a5568',
+                    borderColor: '#8fa3b3',
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    }
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#6b7d8f'
+                  },
+                  '& .MuiInputBase-input': {
+                    color: '#4a5568'
+                  }
+                }}
+              />
+              
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>prioridade</InputLabel>
+                  <Select
+                    value={newRecurringTask.priority}
+                    onChange={(e) => setNewRecurringTask({ ...newRecurringTask, priority: e.target.value as any })}
+                    sx={{
+                      backgroundColor: '#ffffff',
+                      color: '#4a5568',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#8fa3b3'
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      }
+                    }}
+                  >
+                    <MenuItem value="low">baixa</MenuItem>
+                    <MenuItem value="medium">média</MenuItem>
+                    <MenuItem value="high">alta</MenuItem>
+                  </Select>
+                </FormControl>
+                
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>tipo</InputLabel>
+                  <Select
+                    value={newRecurringTask.type}
+                    onChange={(e) => setNewRecurringTask({ ...newRecurringTask, type: e.target.value })}
+                    sx={{
+                      backgroundColor: '#ffffff',
+                      color: '#4a5568',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#8fa3b3'
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      }
+                    }}
+                  >
+                    {taskTypes.map(type => (
+                      <MenuItem key={type.id} value={type.id}>{type.name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              
+              {/* Recurring Pattern Configuration */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, backgroundColor: '#f8fafb', borderRadius: 1 }}>
+                <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                  configuração de recorrência
+                </Typography>
+                
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>frequência</InputLabel>
+                    <Select
+                      value={newRecurringTask.recurringPattern.frequency}
+                      onChange={(e) => setNewRecurringTask({
+                        ...newRecurringTask,
+                        recurringPattern: {
+                          ...newRecurringTask.recurringPattern,
+                          frequency: e.target.value as any
+                        }
+                      })}
+                      sx={{
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#8fa3b3'
+                        },
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      }}
+                    >
+                      <MenuItem value="daily">diária</MenuItem>
+                      <MenuItem value="weekly">semanal</MenuItem>
+                      <MenuItem value="monthly">mensal</MenuItem>
+                    </Select>
+                  </FormControl>
+                  
+                  <TextField
+                    label="intervalo"
+                    type="number"
+                    value={newRecurringTask.recurringPattern.interval}
+                    onChange={(e) => setNewRecurringTask({
+                      ...newRecurringTask,
+                      recurringPattern: {
+                        ...newRecurringTask.recurringPattern,
+                        interval: parseInt(e.target.value) || 1
+                      }
+                    })}
+                    fullWidth
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        borderColor: '#8fa3b3',
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: '#6b7d8f'
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#4a5568'
+                      }
+                    }}
+                  />
+                </Box>
+                
+                {/* Days of Week for Weekly Frequency */}
+                {newRecurringTask.recurringPattern.frequency === 'weekly' && (
+                  <Box>
+                    <Typography variant="body2" sx={{ color: '#4a5568', mb: 1 }}>
+                      dias da semana:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {dayNames.map((day, index) => (
+                        <Chip
+                          key={day}
+                          label={dayLabels[index]}
+                          onClick={() => {
+                            const currentDays = newRecurringTask.recurringPattern.daysOfWeek || [];
+                            const newDays = currentDays.includes(day)
+                              ? currentDays.filter(d => d !== day)
+                              : [...currentDays, day];
+                            setNewRecurringTask({
+                              ...newRecurringTask,
+                              recurringPattern: {
+                                ...newRecurringTask.recurringPattern,
+                                daysOfWeek: newDays
+                              }
+                            });
+                          }}
+                          sx={{
+                            backgroundColor: (newRecurringTask.recurringPattern.daysOfWeek || []).includes(day)
+                              ? '#5a6c7d'
+                              : '#e2e8f0',
+                            color: (newRecurringTask.recurringPattern.daysOfWeek || []).includes(day)
+                              ? '#ffffff'
+                              : '#4a5568',
+                            cursor: 'pointer',
+                            '&:hover': {
+                              backgroundColor: (newRecurringTask.recurringPattern.daysOfWeek || []).includes(day)
+                                ? '#4a5568'
+                                : '#d1d5db'
+                            }
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+                
+                {/* Day of Month for Monthly Frequency */}
+                {newRecurringTask.recurringPattern.frequency === 'monthly' && (
+                  <TextField
+                    label="dia do mês"
+                    type="number"
+                    value={newRecurringTask.recurringPattern.dayOfMonth || ''}
+                    onChange={(e) => setNewRecurringTask({
+                      ...newRecurringTask,
+                      recurringPattern: {
+                        ...newRecurringTask.recurringPattern,
+                        dayOfMonth: parseInt(e.target.value) || undefined
+                      }
+                    })}
+                    fullWidth
+                    inputProps={{ min: 1, max: 31 }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        borderColor: '#8fa3b3',
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: '#6b7d8f'
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#4a5568'
+                      }
+                    }}
+                  />
+                )}
+                
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <TextField
+                    label="data de início"
+                    type="date"
+                    value={newRecurringTask.recurringPattern.startDate.toISOString().split('T')[0]}
+                    onChange={(e) => setNewRecurringTask({
+                      ...newRecurringTask,
+                      recurringPattern: {
+                        ...newRecurringTask.recurringPattern,
+                        startDate: new Date(e.target.value)
+                      }
+                    })}
+                    fullWidth
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        borderColor: '#8fa3b3',
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: '#6b7d8f'
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#4a5568'
+                      }
+                    }}
+                  />
+                  
+                  <TextField
+                    label="data de fim (opcional)"
+                    type="date"
+                    value={newRecurringTask.recurringPattern.endDate?.toISOString().split('T')[0] || ''}
+                    onChange={(e) => setNewRecurringTask({
+                      ...newRecurringTask,
+                      recurringPattern: {
+                        ...newRecurringTask.recurringPattern,
+                        endDate: e.target.value ? new Date(e.target.value) : undefined
+                      }
+                    })}
+                    fullWidth
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        borderColor: '#8fa3b3',
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: '#6b7d8f'
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#4a5568'
+                      }
+                    }}
+                  />
+                </Box>
+              </Box>
+              
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <input
+                  type="checkbox"
+                  checked={newRecurringTask.isActive}
+                  onChange={(e) => setNewRecurringTask({ ...newRecurringTask, isActive: e.target.checked })}
+                />
+                <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                  ativa (gerar tarefas automaticamente)
+                </Typography>
+              </Box>
+            </Box>
+            
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+              {editingRecurringTask && (
+                <Button
+                  variant="outlined"
+                  onClick={handleCancelEdit}
+                  sx={{
+                    borderColor: '#8fa3b3',
+                    color: '#6b7d8f',
+                    '&:hover': {
+                      borderColor: '#5a6c7d',
+                      backgroundColor: '#f1f5f8'
+                    }
+                  }}
+                >
+                  cancelar
+                </Button>
+              )}
+              <Button
+                variant="contained"
+                onClick={handleSaveRecurringTask}
+                disabled={!newRecurringTask.title.trim() || !newRecurringTask.type}
+                sx={{
+                  backgroundColor: '#5a6c7d',
+                  color: '#ffffff',
+                  '&:hover': { backgroundColor: '#4a5568' },
+                  '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
+                }}
+              >
+                {editingRecurringTask ? 'atualizar' : 'adicionar'}
+              </Button>
+            </Box>
+          </Box>
+          
+          {/* Feedback Message */}
+          {scheduleMessage && (
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              gap: 2,
+              py: 1,
+              mb: 2,
+              backgroundColor: 'rgba(90,108,125,0.1)',
+              borderRadius: 1,
+              border: '1px solid rgba(90,108,125,0.2)'
+            }}>
+              <Typography variant="body2" sx={{ 
+                color: '#5a6c7d',
+                fontWeight: 500
+              }}>
+                {scheduleMessage}
+              </Typography>
+            </Box>
+          )}
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3 }}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                generateAllRecurringTasks();
+                setScheduleMessage('Tarefas recorrentes geradas com sucesso!');
+                setTimeout(() => setScheduleMessage(''), 3000);
+              }}
+              sx={{
+                borderColor: '#8fa3b3',
+                color: '#4a5568',
+                '&:hover': {
+                  borderColor: '#5a6c7d',
+                  backgroundColor: '#f1f5f8'
+                }
+              }}
+            >
+              gerar tarefas agora
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                setOpenRecurringTasksDialog(false);
+                setEditingRecurringTask(null);
+                setNewRecurringTask({
+                  title: '',
+                  description: '',
+                  priority: 'medium',
+                  type: taskTypes.length > 0 ? taskTypes[0].id : 'feature',
+                  recurringPattern: {
+                    frequency: 'weekly',
+                    interval: 1,
+                    daysOfWeek: ['monday'],
+                    startDate: new Date(),
+                    endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+                  },
+                  isActive: true
+                });
+              }}
+              sx={{
+                backgroundColor: '#5a6c7d',
+                '&:hover': { backgroundColor: '#4a5568' }
+              }}
+            >
+              fechar
+            </Button>
+          </Box>
+        </Box>
+      </Dialog>
+    );
+  };
+
+  const renderRecurringTasksDialog = () => {
+    const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const dayLabels = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+
+    return (
+      <Dialog open={openRecurringTasksDialog} onClose={() => setOpenRecurringTasksDialog(false)} maxWidth="lg" fullWidth>
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
+            {editingRecurringTask ? 'editar tarefa recorrente' : 'gerenciar tarefas recorrentes'}
+          </Typography>
+          
+          {/* Existing Recurring Tasks */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="subtitle1" sx={{ color: '#4a5568', mb: 2, fontWeight: 500 }}>
+              tarefas recorrentes existentes
+            </Typography>
+            
+            {recurringTasks.length === 0 ? (
+              <Typography variant="body2" sx={{ color: '#6b7d8f', fontStyle: 'italic' }}>
+                nenhuma tarefa recorrente criada ainda
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {recurringTasks.map((task) => (
+                  <Box
+                    key={task.id}
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      p: 2,
+                      backgroundColor: '#f8fafb',
+                      borderRadius: 1,
+                      border: '1px solid #e2e8f0'
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+                      <Box
+                        sx={{ 
+                          width: 12,
+                          height: 12,
+                          backgroundColor: task.isActive ? '#48bb78' : '#e53e3e',
+                          borderRadius: '50%'
+                        }}
+                      />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="body1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                          {task.title}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#6b7d8f' }}>
+                          {task.description}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+                          <Chip
+                            label={task.priority}
+                            size="small"
+                            sx={{
+                              backgroundColor: `${getPriorityColor(task.priority)}20`,
+                              color: getPriorityColor(task.priority),
+                              border: `1px solid ${getPriorityColor(task.priority)}50`,
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                          <Chip
+                            label={taskTypes.find(t => t.id === task.type)?.name || 'unknown'}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#e2e8f0',
+                              color: '#4a5568',
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                          <Chip
+                            label={`${task.recurringPattern.frequency} (${task.recurringPattern.interval})`}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#e2e8f0',
+                              color: '#4a5568',
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                        </Box>
+                      </Box>
+                    </Box>
+                    
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setEditingRecurringTask(task);
+                          setNewRecurringTask({
+                            title: task.title,
+                            description: task.description,
+                            priority: task.priority,
+                            type: task.type,
+                            recurringPattern: task.recurringPattern,
+                            isActive: task.isActive
+                          });
+                        }}
+                        sx={{ 
+                          color: '#5a6c7d',
+                          '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
+                        }}
+                      >
+                        <EditIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => deleteRecurringTask(task.id)}
+                        sx={{ 
+                          color: '#e53e3e',
+                          '&:hover': { backgroundColor: 'rgba(229,62,62,0.1)' }
+                        }}
+                      >
+                        <DeleteIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+          
+          {/* Add/Edit Recurring Task Form */}
+          <Box sx={{ 
+            pt: 2, 
+            borderTop: '1px solid #e2e8f0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2
+          }}>
+            <Typography variant="subtitle1" sx={{ color: '#4a5568', fontWeight: 500 }}>
+              {editingRecurringTask ? 'editar tarefa recorrente' : 'adicionar nova tarefa recorrente'}
+            </Typography>
+            
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="título"
+                value={newRecurringTask.title}
+                onChange={(e) => setNewRecurringTask({ ...newRecurringTask, title: e.target.value })}
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#ffffff',
+                    color: '#4a5568',
+                    borderColor: '#8fa3b3',
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    }
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#6b7d8f'
+                  },
+                  '& .MuiInputBase-input': {
+                    color: '#4a5568'
+                  }
+                }}
+              />
+              
+              <TextField
+                label="descrição"
+                value={newRecurringTask.description}
+                onChange={(e) => setNewRecurringTask({ ...newRecurringTask, description: e.target.value })}
+                fullWidth
+                multiline
+                rows={2}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#ffffff',
+                    color: '#4a5568',
+                    borderColor: '#8fa3b3',
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#5a6c7d'
+                    }
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#6b7d8f'
+                  },
+                  '& .MuiInputBase-input': {
+                    color: '#4a5568'
+                  }
+                }}
+              />
+              
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>prioridade</InputLabel>
+                  <Select
+                    value={newRecurringTask.priority}
+                    onChange={(e) => setNewRecurringTask({ ...newRecurringTask, priority: e.target.value as any })}
+                    sx={{
+                      backgroundColor: '#ffffff',
+                      color: '#4a5568',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#8fa3b3'
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      }
+                    }}
+                  >
+                    <MenuItem value="low">baixa</MenuItem>
+                    <MenuItem value="medium">média</MenuItem>
+                    <MenuItem value="high">alta</MenuItem>
+                  </Select>
+                </FormControl>
+                
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>tipo</InputLabel>
+                  <Select
+                    value={newRecurringTask.type}
+                    onChange={(e) => setNewRecurringTask({ ...newRecurringTask, type: e.target.value })}
+                    sx={{
+                      backgroundColor: '#ffffff',
+                      color: '#4a5568',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#8fa3b3'
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#5a6c7d'
+                      }
+                    }}
+                  >
+                    {taskTypes.map(type => (
+                      <MenuItem key={type.id} value={type.id}>{type.name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              
+              {/* Recurring Pattern Configuration */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2, backgroundColor: '#f8fafb', borderRadius: 1 }}>
+                <Typography variant="subtitle2" sx={{ color: '#4a5568', fontWeight: 500 }}>
+                  configuração de recorrência
+                </Typography>
+                
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <FormControl fullWidth>
+                    <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>frequência</InputLabel>
+                    <Select
+                      value={newRecurringTask.recurringPattern.frequency}
+                      onChange={(e) => setNewRecurringTask({
+                        ...newRecurringTask,
+                        recurringPattern: {
+                          ...newRecurringTask.recurringPattern,
+                          frequency: e.target.value as any
+                        }
+                      })}
+                      sx={{
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#8fa3b3'
+                        },
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      }}
+                    >
+                      <MenuItem value="daily">diária</MenuItem>
+                      <MenuItem value="weekly">semanal</MenuItem>
+                      <MenuItem value="monthly">mensal</MenuItem>
+                    </Select>
+                  </FormControl>
+                  
+                  <TextField
+                    label="intervalo"
+                    type="number"
+                    value={newRecurringTask.recurringPattern.interval}
+                    onChange={(e) => setNewRecurringTask({
+                      ...newRecurringTask,
+                      recurringPattern: {
+                        ...newRecurringTask.recurringPattern,
+                        interval: parseInt(e.target.value) || 1
+                      }
+                    })}
+                    fullWidth
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        backgroundColor: '#ffffff',
+                        color: '#4a5568',
+                        borderColor: '#8fa3b3',
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#5a6c7d'
+                        }
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: '#6b7d8f'
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#4a5568'
+                      }
+                    }}
+                  />
+                </Box>
+                
+                {/* Days of Week for Weekly Frequency */}
+                {newRecurringTask.recurringPattern.frequency === 'weekly' && (
+                  <Box>
+                    <Typography variant="body2" sx={{ color: '#4a5568', mb: 1 }}>
+                      dias da semana:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {dayNames.map((day, index) => (
+                        <Chip
+                          key={day}
+                          label={dayLabels[index]}
+                          onClick={() => {
+                            const currentDays = newRecurringTask.recurringPattern.daysOfWeek || [];
+                            const newDays = currentDays.includes(day)
+                              ? currentDays.filter(d => d !== day)
+                              : [...currentDays, day];
+                            setNewRecurringTask({
+                              ...newRecurringTask,
+                              recurringPattern: {
+                                ...newRecurringTask.recurringPattern,
+                                daysOfWeek: newDays
+                              }
+                            });
+                          }}
+                          sx={{
+                            backgroundColor: (newRecurringTask.recurringPattern.daysOfWeek || []).includes(day)
+                              ? '#5a6c7d'
+                              : '#e2e8f0',
+                              color: (newRecurringTask.recurringPattern.daysOfWeek || []).includes(day)
+                                ? '#ffffff'
+                                : '#4a5568',
+                              cursor: 'pointer',
+                              '&:hover': {
+                                backgroundColor: (newRecurringTask.recurringPattern.daysOfWeek || []).includes(day)
+                                  ? '#4a5568'
+                                  : '#d1d5db'
+                              }
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                  
+                  {/* Day of Month for Monthly Frequency */}
+                  {newRecurringTask.recurringPattern.frequency === 'monthly' && (
+                    <TextField
+                      label="dia do mês"
+                      type="number"
+                      value={newRecurringTask.recurringPattern.dayOfMonth || ''}
+                      onChange={(e) => setNewRecurringTask({
+                        ...newRecurringTask,
+                        recurringPattern: {
+                          ...newRecurringTask.recurringPattern,
+                          dayOfMonth: parseInt(e.target.value) || undefined
+                        }
+                      })}
+                      fullWidth
+                      inputProps={{ min: 1, max: 31 }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          backgroundColor: '#ffffff',
+                          color: '#4a5568',
+                          borderColor: '#8fa3b3',
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#5a6c7d'
+                          },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#5a6c7d'
+                          }
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: '#6b7d8f'
+                        },
+                        '& .MuiInputBase-input': {
+                          color: '#4a5568'
+                        }
+                      }}
+                    />
+                  )}
+                  
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    <TextField
+                      label="data de início"
+                      type="date"
+                      value={newRecurringTask.recurringPattern.startDate.toISOString().split('T')[0]}
+                      onChange={(e) => setNewRecurringTask({
+                        ...newRecurringTask,
+                        recurringPattern: {
+                          ...newRecurringTask.recurringPattern,
+                          startDate: new Date(e.target.value)
+                        }
+                      })}
+                      fullWidth
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          backgroundColor: '#ffffff',
+                          color: '#4a5568',
+                          borderColor: '#8fa3b3',
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#5a6c7d'
+                          },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#5a6c7d'
+                          }
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: '#6b7d8f'
+                        },
+                        '& .MuiInputBase-input': {
+                          color: '#4a5568'
+                        }
+                      }}
+                    />
+                    
+                    <TextField
+                      label="data de fim (opcional)"
+                      type="date"
+                      value={newRecurringTask.recurringPattern.endDate?.toISOString().split('T')[0] || ''}
+                      onChange={(e) => setNewRecurringTask({
+                        ...newRecurringTask,
+                        recurringPattern: {
+                          ...newRecurringTask.recurringPattern,
+                          endDate: e.target.value ? new Date(e.target.value) : undefined
+                        }
+                      })}
+                      fullWidth
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          backgroundColor: '#ffffff',
+                          color: '#4a5568',
+                          borderColor: '#8fa3b3',
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#5a6c7d'
+                          },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#5a6c7d'
+                          }
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: '#6b7d8f'
+                        },
+                        '& .MuiInputBase-input': {
+                          color: '#4a5568'
+                        }
+                      }}
+                    />
+                  </Box>
+                </Box>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={newRecurringTask.isActive}
+                    onChange={(e) => setNewRecurringTask({ ...newRecurringTask, isActive: e.target.checked })}
+                  />
+                  <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                    ativa (gerar tarefas automaticamente)
+                  </Typography>
+                </Box>
+              </Box>
+              
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                {editingRecurringTask && (
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      setEditingRecurringTask(null);
+                      setNewRecurringTask({
+                        title: '',
+                        description: '',
+                        priority: 'medium',
+                        type: taskTypes.length > 0 ? taskTypes[0].id : 'feature',
+                        recurringPattern: {
+                          frequency: 'weekly',
+                          interval: 1,
+                          daysOfWeek: ['monday'],
+                          startDate: new Date(),
+                          endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+                        },
+                        isActive: true
+                      });
+                    }}
+                    sx={{
+                      borderColor: '#8fa3b3',
+                      color: '#6b7d8f',
+                      '&:hover': {
+                        borderColor: '#5a6c7d',
+                        backgroundColor: '#f1f5f8'
+                      }
+                    }}
+                  >
+                    cancelar
+                  </Button>
+                )}
+                <Button
+                  variant="contained"
+                  onClick={() => {
+                    if (!newRecurringTask.title.trim() || !newRecurringTask.type) return;
+                    
+                    if (editingRecurringTask) {
+                      updateRecurringTask(editingRecurringTask.id, newRecurringTask);
+                      setEditingRecurringTask(null);
+                    } else {
+                      addRecurringTask(newRecurringTask);
+                    }
+                    
+                    setNewRecurringTask({
+                      title: '',
+                      description: '',
+                      priority: 'medium',
+                      type: taskTypes.length > 0 ? taskTypes[0].id : 'feature',
+                      recurringPattern: {
+                        frequency: 'weekly',
+                        interval: 1,
+                        daysOfWeek: ['monday'],
+                        startDate: new Date(),
+                        endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+                      },
+                      isActive: true
+                    });
+                  }}
+                  disabled={!newRecurringTask.title.trim() || !newRecurringTask.type}
+                  sx={{
+                    backgroundColor: '#5a6c7d',
+                    color: '#ffffff',
+                    '&:hover': { backgroundColor: '#4a5568' },
+                    '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
+                  }}
+                >
+                  {editingRecurringTask ? 'atualizar' : 'adicionar'}
+                </Button>
+              </Box>
+            </Box>
+            
+            {/* Feedback Message */}
+            {scheduleMessage && (
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                gap: 2,
+                py: 1,
+                mb: 2,
+                backgroundColor: 'rgba(90,108,125,0.1)',
+                borderRadius: 1,
+                border: '1px solid rgba(90,108,125,0.2)'
+              }}>
+                <Typography variant="body2" sx={{ 
+                  color: '#5a6c7d',
+                  fontWeight: 500
+                }}>
+                  {scheduleMessage}
+                </Typography>
+              </Box>
+            )}
+            
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3 }}>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  generateAllRecurringTasks();
+                  setScheduleMessage('Tarefas recorrentes geradas com sucesso!');
+                  setTimeout(() => setScheduleMessage(''), 3000);
+                }}
+                sx={{
+                  borderColor: '#8fa3b3',
+                  color: '#4a5568',
+                  '&:hover': {
+                    borderColor: '#5a6c7d',
+                    backgroundColor: '#f1f5f8'
+                  }
+                }}
+              >
+                gerar tarefas agora
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  setOpenRecurringTasksDialog(false);
+                  setEditingRecurringTask(null);
+                  setNewRecurringTask({
+                    title: '',
+                    description: '',
+                    priority: 'medium',
+                    type: taskTypes.length > 0 ? taskTypes[0].id : 'feature',
+                    recurringPattern: {
+                      frequency: 'weekly',
+                      interval: 1,
+                      daysOfWeek: ['monday'],
+                      startDate: new Date(),
+                      endDate: new Date(new Date().getFullYear() + 1, 11, 31)
+                    },
+                    isActive: true
+                  });
+                }}
+                sx={{
+                  backgroundColor: '#5a6c7d',
+                  color: '#ffffff',
+                  '&:hover': { backgroundColor: '#4a5568' }
+                }}
+              >
+                fechar
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </Dialog>
+    );
+  };
 
   const renderTasksDialog = () => (
     <Dialog open={openTasksDialog} onClose={() => setOpenTasksDialog(false)} maxWidth="lg" fullWidth>
@@ -4118,7 +4611,7 @@ function App() {
                     p: 2,
                       cursor: 'pointer',
                     backgroundColor: '#f8fafb',
-                    borderBottom: '1px solid #f1f5f8',
+                    borderBottom: '1px solid #e2e8f0',
                     '&:hover': { backgroundColor: '#f1f5f8' }
                   }}
                   onClick={() => toggleColumnExpansion(columnId)}
@@ -4237,30 +4730,24 @@ function App() {
 
   const renderDailyView = () => {
     const currentDate = new Date();
-    const displayDay = new Date(selectedDay);
-    displayDay.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
     // Get all tasks
     const allTasks = taskTypes.flatMap(type => type.tasks);
     
-    // Get recurring tasks for selected day
-    const recurringTasksForDay = getRecurringTasksForDay(displayDay);
-    
-    // Filter normal tasks for selected day
-    const normalDayTasks = allTasks.filter(task => {
+    // Filter tasks for today
+    const todayTasks = allTasks.filter(task => {
       if (!task.dueDate) return false;
       const taskDate = new Date(task.dueDate);
       taskDate.setHours(0, 0, 0, 0);
-      return taskDate.getTime() === displayDay.getTime();
+      return taskDate.getTime() === today.getTime();
     });
     
-    // Combine normal and recurring tasks
-    const dayTasks = [...normalDayTasks, ...recurringTasksForDay];
-    
     // Group tasks by priority
-    const highPriorityTasks = dayTasks.filter(task => task.priority === 'high');
-    const mediumPriorityTasks = dayTasks.filter(task => task.priority === 'medium');
-    const lowPriorityTasks = dayTasks.filter(task => task.priority === 'low');
+    const highPriorityTasks = todayTasks.filter(task => task.priority === 'high');
+    const mediumPriorityTasks = todayTasks.filter(task => task.priority === 'medium');
+    const lowPriorityTasks = todayTasks.filter(task => task.priority === 'low');
     
     return (
       <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
@@ -4271,28 +4758,12 @@ function App() {
           alignItems: 'center', 
           mb: 4 
         }}>
-          {/* Day Navigation */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <IconButton
-              onClick={() => {
-                const prevDay = new Date(selectedDay);
-                prevDay.setDate(prevDay.getDate() - 1);
-                setSelectedDay(prevDay);
-              }}
-              sx={{ 
-                color: '#4a5568',
-                '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
-              }}
-            >
-              <Box sx={{ fontSize: '1.5rem' }}>‹</Box>
-            </IconButton>
-            
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
             <Typography variant="h4" sx={{ 
               color: '#4a5568', 
               fontWeight: 600
             }}>
-              {displayDay.toLocaleDateString('en-US', { 
+              {today.toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
                 month: 'long', 
@@ -4304,28 +4775,9 @@ function App() {
               color: '#6b7d8f',
               fontStyle: 'italic'
             }}>
-              {dayTasks.length} tasks for {displayDay.toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
+              {todayTasks.length} tasks for today
             </Typography>
           </Box>
-          
-          <IconButton
-            onClick={() => {
-              const nextDay = new Date(selectedDay);
-              nextDay.setDate(nextDay.getDate() + 1);
-              setSelectedDay(nextDay);
-            }}
-            sx={{ 
-              color: '#4a5568',
-              '&:hover': { backgroundColor: 'rgba(90,108,125,0.1)' }
-            }}
-          >
-            <Box sx={{ fontSize: '1.5rem' }}>›</Box>
-          </IconButton>
-        </Box>
           
           <Button
             variant="contained"
@@ -4339,12 +4791,7 @@ function App() {
                 type: taskTypes.length > 0 ? taskTypes[0].id : '',
                 createdAt: new Date(),
                 startDate: getTodayDate(),
-                dueDate: getTodayDate(),
-                taskType: 'geral',
-                blockType: 'general',
-                recurringDays: [],
-                recurringTime: '',
-                appointmentTime: ''
+                dueDate: getTodayDate()
               });
               setSelectedTask(null);
               setIsEditing(true);
@@ -4396,7 +4843,7 @@ function App() {
                 textAlign: 'center',
                 py: 2
               }}>
-                no high priority tasks for this day
+                no high priority tasks for today
               </Typography>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -4475,7 +4922,7 @@ function App() {
                 textAlign: 'center',
                 py: 2
               }}>
-                no medium priority tasks for this day
+                no medium priority tasks for today
               </Typography>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -4554,7 +5001,7 @@ function App() {
                 textAlign: 'center',
                 py: 2
               }}>
-                no low priority tasks for this day
+                no low priority tasks for today
               </Typography>
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -4626,7 +5073,7 @@ function App() {
                 borderRadius: '50%' 
               }} />
               <Typography variant="body2" sx={{ color: '#4a5568' }}>
-                total tasks: {dayTasks.length}
+                total tasks: {todayTasks.length}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -4670,7 +5117,7 @@ function App() {
                 borderRadius: '50%' 
               }} />
               <Typography variant="body2" sx={{ color: '#4a5568' }}>
-                done: {dayTasks.filter((t: Task) => t.status === 'done').length}
+                done: {todayTasks.filter(t => t.status === 'done').length}
               </Typography>
             </Box>
           </Box>
@@ -4699,43 +5146,26 @@ function App() {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 6);
     
-    // Get all normal tasks
-    const allNormalTasks = taskTypes.flatMap(type => type.tasks);
+    // Get all tasks
+    const allTasks = taskTypes.flatMap(type => type.tasks);
     
-    // Filter normal tasks for the selected week
-    const normalWeekTasks = allNormalTasks.filter(task => {
+    // Filter tasks for the selected week
+    const weekTasks = allTasks.filter(task => {
       if (!task.dueDate) return false;
       const taskDate = new Date(task.dueDate);
       return taskDate >= weekStart && taskDate <= weekEnd;
     });
     
-    // Get recurring tasks for each day of the week
-    const recurringTasksByDay: Record<string, Task[]> = {};
-    for (let i = 0; i < 7; i++) {
-      const dayDate = new Date(weekStart);
-      dayDate.setDate(weekStart.getDate() + i);
-      const dayKey = dayDate.toISOString().split('T')[0];
-      recurringTasksByDay[dayKey] = getRecurringTasksForDay(dayDate);
-    }
-    
-    // Group all tasks by day (normal + recurring)
+    // Group tasks by day
     const tasksByDay: Record<string, Task[]> = {};
     for (let i = 0; i < 7; i++) {
       const dayDate = new Date(weekStart);
       dayDate.setDate(weekStart.getDate() + i);
       const dayKey = dayDate.toISOString().split('T')[0];
-      
-      // Get normal tasks for this day
-      const normalTasksForDay = normalWeekTasks.filter(task => {
-        const taskDate = task.dueDate ? new Date(task.dueDate) : new Date();
+      tasksByDay[dayKey] = weekTasks.filter(task => {
+        const taskDate = new Date(task.dueDate);
         return taskDate.toDateString() === dayDate.toDateString();
       });
-      
-      // Get recurring tasks for this day
-      const recurringTasksForDay = recurringTasksByDay[dayKey] || [];
-      
-      // Combine normal and recurring tasks
-      tasksByDay[dayKey] = [...normalTasksForDay, ...recurringTasksForDay];
     }
     
     const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -4844,12 +5274,7 @@ function App() {
                 type: taskTypes.length > 0 ? taskTypes[0].id : '',
                 createdAt: new Date(),
                 startDate: getTodayDate(),
-                dueDate: getTodayDate(),
-                taskType: 'geral',
-                blockType: 'general',
-                recurringDays: [],
-                recurringTime: '',
-                appointmentTime: ''
+                dueDate: getTodayDate()
               });
               setSelectedTask(null);
               setIsEditing(true);
@@ -4929,12 +5354,7 @@ function App() {
                           type: taskTypes.length > 0 ? taskTypes[0].id : '',
                           createdAt: new Date(),
                           startDate: dayDate,
-                          dueDate: dayDate,
-                          taskType: 'geral',
-                          blockType: 'general',
-                          recurringDays: [],
-                          recurringTime: '',
-                          appointmentTime: ''
+                          dueDate: dayDate
                         });
                         setSelectedTask(null);
                         setIsEditing(true);
@@ -5119,7 +5539,7 @@ function App() {
                 borderRadius: '50%' 
               }} />
               <Typography variant="body2" sx={{ color: '#4a5568' }}>
-                total tasks: {Object.values(tasksByDay).flat().length}
+                total tasks: {weekTasks.length}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -5130,7 +5550,7 @@ function App() {
                 borderRadius: '50%' 
               }} />
               <Typography variant="body2" sx={{ color: '#4a5568' }}>
-                done: {Object.values(tasksByDay).flat().filter((t: Task) => t.status === 'done').length}
+                done: {weekTasks.filter(t => t.status === 'done').length}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -5141,7 +5561,7 @@ function App() {
                 borderRadius: '50%' 
               }} />
               <Typography variant="body2" sx={{ color: '#4a5568' }}>
-                in progress: {Object.values(tasksByDay).flat().filter((t: Task) => t.status === 'in-progress').length}
+                in progress: {weekTasks.filter(t => t.status === 'in-progress').length}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -5152,8 +5572,8 @@ function App() {
                 borderRadius: '50%' 
               }} />
               <Typography variant="body2" sx={{ color: '#4a5568' }}>
-                overdue: {Object.values(tasksByDay).flat().filter((t: Task) => {
-                  const taskDate = t.dueDate ? new Date(t.dueDate) : new Date();
+                overdue: {weekTasks.filter(t => {
+                  const taskDate = new Date(t.dueDate);
                   return taskDate < currentDate && t.status !== 'done';
                 }).length}
               </Typography>
@@ -5173,8 +5593,8 @@ function App() {
     const displayMonth = selectedMonth;
     const displayYear = selectedYear;
     
-    // Get all normal tasks with due dates
-    const allNormalTasks = taskTypes.flatMap(type => 
+    // Get all tasks with due dates
+    const allTasks = taskTypes.flatMap(type => 
       type.tasks.filter(task => task.dueDate).map(task => ({
         ...task,
         blockName: type.name,
@@ -5182,42 +5602,15 @@ function App() {
       }))
     );
     
-    // Get recurring tasks for the selected month (only for calendar display)
-    const recurringTasksForMonth = getRecurringTasksForMonth(displayYear, displayMonth).map(task => ({
-      ...task,
-      blockName: task.taskType === 'recorrente' ? 'recurring' : 'compromisso',
-      blockColor: task.taskType === 'recorrente' ? '#5a6c7d' : '#f59e0b' // Cinza da paleta principal para recorrente, laranja para compromisso
-    }));
-    
-    // Filter normal tasks for selected month
-    const normalMonthTasks = allNormalTasks.filter(task => {
+    // Filter tasks for selected month
+    const monthTasks = allTasks.filter(task => {
       if (!task.dueDate) return false;
       const taskDate = new Date(task.dueDate);
       return taskDate.getMonth() === displayMonth && taskDate.getFullYear() === displayYear;
     });
     
-    // Combine normal and recurring tasks for calendar display
-    const monthTasks = [...normalMonthTasks, ...recurringTasksForMonth];
-    
-    // Para o gantt, usar apenas tarefas normais + tarefas recorrentes originais (não as instâncias)
-    const recurringTasksForGantt = recurringTasks.filter(task => 
-      task.dueDate && // Só tarefas com deadline
-      task.startDate && // Só tarefas com data de início
-      task.recurringDays && task.recurringDays.length > 0 // Só tarefas recorrentes
-    ).map(task => ({
-      ...task,
-      blockName: 'recurring',
-      blockColor: '#5a6c7d',
-      // Usar a data de início e fim originais para o gantt
-      startDate: task.startDate,
-      dueDate: task.dueDate
-    }));
-    
-    // Combine normal tasks and recurring tasks for Gantt
-    const allGanttTasks = [...normalMonthTasks, ...recurringTasksForGantt];
-    
-    // Sort all tasks by due date
-    const sortedTasks = allGanttTasks.sort((a, b) => {
+    // Sort tasks by due date
+    const sortedTasks = monthTasks.sort((a, b) => {
       if (!a.dueDate || !b.dueDate) return 0;
       return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
     });
@@ -5324,7 +5717,7 @@ function App() {
             </Typography>
             <Button
               variant="contained"
-              onClick={() => handleAddTask(undefined, 'backlog')}
+              onClick={() => handleAddTask()}
               sx={{ 
                 backgroundColor: '#5a6c7d',
                 '&:hover': { backgroundColor: '#4a5568' }
@@ -5360,7 +5753,7 @@ function App() {
 
           {/* Gantt Bars */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {sortedTasks.map((task: any, index: number) => {
+            {sortedTasks.map((task, index) => {
               if (!task.dueDate) return null;
               const taskDate = new Date(task.dueDate);
               const dayOfMonth = taskDate.getDate();
@@ -5419,46 +5812,29 @@ function App() {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     
-                    // Check if this day is within the task timeline
-                    const taskStartDate = new Date(task.startDate);
-                    taskStartDate.setHours(0, 0, 0, 0);
-                    
-                    // Para tarefas recorrentes, verificar se é um dia de recorrência
-                    let isInTaskTimeline = false;
-                    let isTaskStart = false;
-                    let isTaskEnd = false;
-                    
-                    if (task.taskType === 'recorrente' && task.recurringDays && task.recurringDays.length > 0) {
-                      // Tarefa recorrente: verificar se é um dia de recorrência dentro do período
-                      const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                      const isRecurringDay = task.recurringDays.includes(dayName);
-                      const isInPeriod = currentDate >= taskStartDate && currentDate <= taskDate;
-                      
-                      isInTaskTimeline = isRecurringDay && isInPeriod;
-                      isTaskStart = currentDate.getTime() === taskStartDate.getTime() && isRecurringDay;
-                      isTaskEnd = currentDate.getTime() === taskDate.getTime() && isRecurringDay;
-                    } else {
-                      // Tarefa normal: verificar se está dentro do período
-                      isInTaskTimeline = currentDate >= taskStartDate && currentDate <= taskDate;
-                      isTaskStart = currentDate.getTime() === taskStartDate.getTime();
-                      isTaskEnd = currentDate.getTime() === taskDate.getTime();
-                    }
-                    
+                                         // Check if this day is within the task timeline
+                     const taskStartDate = new Date(task.startDate);
+                     taskStartDate.setHours(0, 0, 0, 0);
+                     const isInTaskTimeline = currentDate >= taskStartDate && currentDate <= taskDate;
+                                          const isTaskStart = currentDate.getTime() === taskStartDate.getTime();
+                     const isTaskEnd = currentDate.getTime() === taskDate.getTime();
+                     
+
                     const isOverdue = taskDate < today && task.status !== 'done';
                     const isToday = currentDate.toDateString() === new Date().toDateString();
                     
-                    // Determine background color - only color days within task timeline
-                    let backgroundColor = '#ffffff';
-                    if (isInTaskTimeline) {
-                      if (isOverdue) {
-                        backgroundColor = '#fed7d7'; // Red for overdue
-                      } else if (task.status === 'done') {
-                        backgroundColor = '#c6f6d5'; // Green for done
-                      } else {
-                        backgroundColor = getStatusColor(task.status);
-                      }
-                    }
-                    // All other days remain white
+                                         // Determine background color - only color days within task timeline
+                     let backgroundColor = '#ffffff';
+                     if (isInTaskTimeline) {
+                       if (isOverdue) {
+                         backgroundColor = '#fed7d7'; // Red for overdue
+                       } else if (task.status === 'done') {
+                         backgroundColor = '#c6f6d5'; // Green for done
+                       } else {
+                         backgroundColor = getStatusColor(task.status);
+                       }
+                     }
+                     // All other days remain white
                     
                     return (
                       <Box 
@@ -5604,11 +5980,11 @@ function App() {
               const day = i + 1;
               const currentDate = new Date(displayYear, displayMonth, day);
               const isToday = currentDate.toDateString() === new Date().toDateString();
-                      const dayTasks = monthTasks.filter((task: any) => {
-          if (!task.dueDate) return false;
-          const taskDate = new Date(task.dueDate);
-          return taskDate.getDate() === day;
-        });
+              const dayTasks = monthTasks.filter(task => {
+                if (!task.dueDate) return false;
+                const taskDate = new Date(task.dueDate);
+                return taskDate.getDate() === day;
+              });
               
     return (
                 <Box key={day} sx={{ 
@@ -5822,29 +6198,6 @@ function App() {
                             }
                           }}
                         >
-                        {/* Delete schedule item */}
-                        {block && (
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteScheduleItem(
-                                block.id,
-                                dayName as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday',
-                                classInfo.time
-                              );
-                            }}
-                            sx={{
-                              position: 'absolute',
-                              top: 4,
-                              right: 4,
-                              color: '#ffffff',
-                              '&:hover': { color: '#f1f5f8' }
-                            }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        )}
                         <Typography variant="body2" sx={{ 
                           fontWeight: 600,
                           mb: 0.5,
@@ -6092,6 +6445,7 @@ function App() {
       {renderBlocksDialog()}
       {renderColumnsDialog()}
       {renderTasksDialog()}
+      {renderRecurringTasksDialog()}
       {renderSearchResults()}
 
       
@@ -6229,9 +6583,6 @@ function App() {
           </Box>
         </Box>
       </Dialog>
-
-      {/* Chat Bot */}
-      {renderChat()}
     </Box>
   );
 }
