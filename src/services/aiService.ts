@@ -107,7 +107,7 @@ tipos:
 
 **Blocos/Projetos:**
    - Só sugira um bloco se o usuário explicitamente pedir um novo
-   - Se não especificar, deixe suggestedBlock vazio (as tarefas vão para "Random")
+   - Se não especificar, deixe suggestedBlock vazio (as tarefas vão para "Compromissos")
    - Use blocos existentes quando possível
 
 Responda apenas com JSON válido no formato:
@@ -135,13 +135,13 @@ Responda apenas com JSON válido no formato:
   significa que do dia 13 ao 17 todas as quartas as 14h vai ter a task x
 
 Exemplos de entrada:
-- "preciso fazer relatório até sexta" → tarefa geral com prazo, status to-do (vai para "Random")
-- "estou fazendo análise de dados" → tarefa em progresso (vai para "Random")
-- "terminei revisão do código" → tarefa concluída (vai para "Random")
-- "consulta dentista amanhã 15h" → compromisso com data/hora (vai para "Random")
-- "gastroenterologista dia 05/09 14:20" → compromisso com data/hora (vai para "Random")
+- "preciso fazer relatório até sexta" → tarefa geral com prazo, status to-do (vai para "Compromissos")
+- "estou fazendo análise de dados" → tarefa em progresso (vai para "Compromissos")
+- "terminei revisão do código" → tarefa concluída (vai para "Compromissos")
+- "consulta dentista amanhã 15h" → compromisso com data/hora (vai para "Compromissos")
+- "gastroenterologista dia 05/09 14:20" → compromisso com data/hora (vai para "Compromissos")
 - "exercícios toda terça 12h" → tarefa recorrente (vai APENAS para agenda, NÃO para kanban nem gantt)
-- "backlog estudar React" → tarefa no backlog (vai para "Random")
+- "backlog estudar React" → tarefa no backlog (vai para "Compromissos")
 - "criar projeto 'Marketing Digital'" → tarefa + bloco novo "Marketing Digital"
 - "no projeto 'Trabalho' preciso fazer relatório" → tarefa no bloco existente "Trabalho"
 
@@ -150,6 +150,16 @@ Exemplos de entrada:
 - Tarefas que se repetem = "recorrente" (com recurringDays)
 - Use "compromisso" para consultas médicas, reuniões, eventos únicos
 - Use "recorrente" apenas quando houver palavras como "toda", "todos os", "semanalmente"
+
+**REGRAS DE CLASSIFICAÇÃO:**
+- "gastroenterologista dia 05/09 14:20" → taskType: "compromisso" (NÃO recorrente)
+- "consulta médica amanhã 15h" → taskType: "compromisso" (NÃO recorrente)
+- "reunião dia 20 às 10h" → taskType: "compromisso" (NÃO recorrente)
+- "exercícios toda terça 12h" → taskType: "recorrente" (com recurringDays)
+- "aula de piano toda quarta 16h" → taskType: "recorrente" (com recurringDays)
+
+**COMPROMISSOS ÚNICOS SEMPRE = "compromisso"**
+**RECORRÊNCIAS SEMPRE = "recorrente"**
 `;
 
 

@@ -695,8 +695,8 @@ function App() {
           priority: newTask.priority,
           blockType: newTask.type || 'general',
           createdAt: new Date(),
-          startDate: newTask.startDate || getTodayDate(),
-          dueDate: newTask.dueDate || getTodayDate(),
+          startDate: newTask.startDate || new Date(), // Usar data de criação como start date padrão
+          dueDate: newTask.dueDate, // Pode ser undefined para recorrência indefinida
           taskType: newTask.taskType as 'recorrente' | 'compromisso',
           recurringDays: newTask.recurringDays || [],
           recurringTime: newTask.recurringTime || '',
@@ -1095,6 +1095,88 @@ function App() {
     }
   };
 
+  // Helper: normalize date to 00:00:00 for reliable comparisons
+  const normalizeDate = (date: Date): Date => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  // Update corresponding recurring task (if any) when changing dates from Gantt
+  const updateRecurringDatesIfNeeded = (updatedTask: Task) => {
+    if (updatedTask.taskType !== 'recorrente') return;
+    setRecurringTasks(prev => prev.map(rt => {
+      if (rt.id !== updatedTask.id) return rt;
+      return {
+        ...rt,
+        startDate: updatedTask.startDate,
+        // Guard: some recurring tasks may have undefined dueDate
+        dueDate: updatedTask.dueDate,
+      };
+    }));
+  };
+
+  const handleGanttDayToggle = (task: Task, clickedDate: Date, addDay: boolean) => {
+    if (!task.dueDate) return; // Ensure dueDate exists
+
+    // Normalize dates to avoid timezone off-by-one
+    const normClicked = normalizeDate(clickedDate);
+    const normStart = normalizeDate(task.startDate);
+    const normDue = normalizeDate(task.dueDate);
+    const clickedTime = normClicked.getTime();
+    const startTime = normStart.getTime();
+    const dueTime = normDue.getTime();
+    
+    if (addDay) {
+      // Adding a day: extend the timeline
+      if (clickedTime > dueTime) {
+        // Extend due date to the clicked date
+        const updatedTask = { ...task, dueDate: normClicked };
+        updateTaskInState(updatedTask);
+        updateRecurringDatesIfNeeded(updatedTask);
+      } else if (clickedTime < startTime) {
+        // Extend start date to the clicked date
+        const updatedTask = { ...task, startDate: normClicked };
+        updateTaskInState(updatedTask);
+        updateRecurringDatesIfNeeded(updatedTask);
+      }
+    } else {
+      // Removing a day: contract the timeline
+      if (clickedTime === dueTime) {
+        // If clicking the last day, move due date back
+        const newDueDate = new Date(normClicked);
+        newDueDate.setDate(newDueDate.getDate() - 1);
+        
+        if (newDueDate >= normStart) {
+          const updatedTask = { ...task, dueDate: normalizeDate(newDueDate) };
+          updateTaskInState(updatedTask);
+          updateRecurringDatesIfNeeded(updatedTask);
+        }
+      } else if (clickedTime === startTime) {
+        // If clicking the first day, move start date forward
+        const newStartDate = new Date(normClicked);
+        newStartDate.setDate(newStartDate.getDate() + 1);
+        
+        if (newStartDate <= normDue) {
+          const updatedTask = { ...task, startDate: normalizeDate(newStartDate) };
+          updateTaskInState(updatedTask);
+          updateRecurringDatesIfNeeded(updatedTask);
+        }
+      } else if (clickedTime > startTime && clickedTime < dueTime) {
+        // If clicking a day in the middle, split the task or adjust the timeline
+        // For simplicity, we'll move the due date to the day before the clicked date
+        const newDueDate = new Date(normClicked);
+        newDueDate.setDate(newDueDate.getDate() - 1);
+        
+        if (newDueDate >= normStart) {
+          const updatedTask = { ...task, dueDate: normalizeDate(newDueDate) };
+          updateTaskInState(updatedTask);
+          updateRecurringDatesIfNeeded(updatedTask);
+        }
+      }
+    }
+  };
+
 
 
   // Chat functions
@@ -1137,15 +1219,15 @@ function App() {
       // Criar bloco sugerido APENAS se o usuário especificar um bloco novo
       let targetBlock = taskTypes.find(t => t.name === response.suggestedBlock);
       
-      // Se não especificou bloco ou o bloco não existe, usar "Random"
+      // Se não especificou bloco ou o bloco não existe, usar "Compromissos"
       if (!response.suggestedBlock || !targetBlock) {
-        targetBlock = taskTypes.find(t => t.name === 'Random');
+        targetBlock = taskTypes.find(t => t.name === 'Compromissos');
         
-        // Se não existir bloco "Random", criar um
+        // Se não existir bloco "Compromissos", criar um
         if (!targetBlock) {
-          const randomBlock: TaskType = {
+          const compromissosBlock: TaskType = {
             id: Date.now().toString(),
-            name: 'Random',
+            name: 'Compromissos',
             color: '#5a6c7d',
             tasks: [],
             expanded: true,
@@ -1163,8 +1245,8 @@ function App() {
               sunday: []
             }
           };
-          setTaskTypes(prev => [...prev, randomBlock]);
-          targetBlock = randomBlock;
+          setTaskTypes(prev => [...prev, compromissosBlock]);
+          targetBlock = compromissosBlock;
         }
       } else if (response.suggestedBlock && !targetBlock) {
         // Só criar bloco novo se o usuário explicitamente pedir
@@ -1194,7 +1276,12 @@ function App() {
 
       // Criar as tarefas sugeridas pela IA
       if (response.tasks && response.tasks.length > 0) {
+        console.log('=== RESPOSTA DA IA ===');
+        console.log('Response completa:', response);
+        console.log('Tasks da IA:', response.tasks);
+        
         const newTasks: Task[] = response.tasks.map((aiTask: any) => {
+          console.log('Processando aiTask:', aiTask);
           // Processar datas
           let startDate = getTodayDate();
           let dueDate = getTodayDate();
@@ -1271,7 +1358,7 @@ function App() {
             }
           }
 
-          return {
+          const newTask = {
             id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
             title: aiTask.title,
             description: aiTask.description,
@@ -1286,12 +1373,35 @@ function App() {
             recurringTime: aiTask.recurringTime || '',
             appointmentTime: aiTask.appointmentTime || ''
           };
+          
+          console.log('Tarefa criada:', newTask);
+          return newTask;
         });
 
+        // Debug: verificar tipos de tarefas criadas
+        console.log('=== DEBUG: TIPOS DE TAREFAS ===');
+        newTasks.forEach(task => {
+          console.log(`Tarefa: "${task.title}" - Tipo: ${task.taskType} - Recorrente: ${task.taskType === 'recorrente'}`);
+        });
+        
         // Adicionar as tarefas ao bloco correto (APENAS tarefas não recorrentes vão para o kanban)
+        console.log('=== FILTRAGEM DE TAREFAS ===');
+        console.log('Total de tarefas:', newTasks.length);
+        newTasks.forEach((task, index) => {
+          console.log(`Tarefa ${index + 1}:`, {
+            title: task.title,
+            taskType: task.taskType,
+            isRecurring: task.taskType === 'recorrente',
+            recurringDays: task.recurringDays
+          });
+        });
+        
         const nonRecurringTasks = newTasks.filter(task => task.taskType !== 'recorrente');
+        console.log('Tarefas não recorrentes (vão para kanban):', nonRecurringTasks.length);
+        console.log('Tarefas recorrentes (vão para schedule):', newTasks.filter(task => task.taskType === 'recorrente').length);
         
         if (nonRecurringTasks.length > 0) {
+          console.log('Adicionando tarefas não recorrentes ao kanban:', nonRecurringTasks.map(t => t.title));
           setTaskTypes(prev => prev.map(type => 
             type.name === targetBlock?.name
               ? { ...type, tasks: [...type.tasks, ...nonRecurringTasks] }
@@ -1302,7 +1412,13 @@ function App() {
         // Tarefas recorrentes NÃO vão para o kanban, mas vão para o gantt se tiverem data de fim
 
         // Adicionar tarefas recorrentes ao schedule E ao estado recurringTasks
+        console.log('=== PROCESSANDO TAREFAS RECORRENTES ===');
         newTasks.forEach(task => {
+          console.log(`Processando tarefa: "${task.title}" - Tipo: ${task.taskType} - Recorrente: ${task.taskType === 'recorrente'}`);
+          console.log(`RecurringDays:`, task.recurringDays);
+          console.log(`É recorrente e tem recurringDays?`, task.taskType === 'recorrente' && task.recurringDays && Array.isArray(task.recurringDays) && task.recurringDays.length > 0);
+          
+          // VERIFICAÇÃO CRÍTICA: Só processar como recorrente se for realmente recorrente
           if (task.taskType === 'recorrente' && task.recurringDays && Array.isArray(task.recurringDays) && task.recurringDays.length > 0) {
             // Adicionar ao schedule dos blocos
             setTaskTypes(prev => prev.map(type => {
@@ -1330,8 +1446,8 @@ function App() {
               priority: task.priority,
               blockType: task.blockType,
               createdAt: task.createdAt,
-              startDate: task.startDate,
-              dueDate: task.dueDate,
+              startDate: task.startDate || task.createdAt, // Usar data de criação como start date padrão
+              dueDate: task.dueDate, // Pode ser undefined para recorrência indefinida
               taskType: task.taskType as 'recorrente' | 'compromisso',
               recurringDays: task.recurringDays as string[],
               recurringTime: task.recurringTime || '',
@@ -2165,7 +2281,7 @@ function App() {
       </Typography>
       
       {/* Recurring Task Indicator */}
-      {task.taskType !== 'geral' && (
+      {task.taskType === 'recorrente' && (
         <Box sx={{ mb: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Chip
@@ -5201,7 +5317,6 @@ function App() {
     
     // Para o gantt, usar apenas tarefas normais + tarefas recorrentes originais (não as instâncias)
     const recurringTasksForGantt = recurringTasks.filter(task => 
-      task.dueDate && // Só tarefas com deadline
       task.startDate && // Só tarefas com data de início
       task.recurringDays && task.recurringDays.length > 0 // Só tarefas recorrentes
     ).map(task => ({
@@ -5210,7 +5325,7 @@ function App() {
       blockColor: '#5a6c7d',
       // Usar a data de início e fim originais para o gantt
       startDate: task.startDate,
-      dueDate: task.dueDate
+      dueDate: task.dueDate || new Date(task.startDate.getTime() + 30 * 24 * 60 * 60 * 1000) // Se não tem dueDate, usar 30 dias após startDate para visualização
     }));
     
     // Combine normal tasks and recurring tasks for Gantt
@@ -5338,11 +5453,19 @@ function App() {
           <Box sx={{ 
             display: 'grid', 
             gridTemplateColumns: '200px repeat(31, 1fr)', 
-            gap: 1, 
+            gap: 0, 
             mb: 2,
-            borderBottom: '2px solid #e2e8f0'
+            borderBottom: '2px solid #e2e8f0',
+            border: '1px solid #e2e8f0',
+            borderRadius: 1
           }}>
-            <Box sx={{ p: 1, fontWeight: 600, color: '#4a5568' }}>
+            <Box sx={{ 
+              p: 1, 
+              fontWeight: 600, 
+              color: '#4a5568',
+              borderRight: '1px solid #e2e8f0',
+              backgroundColor: '#f8fafb'
+            }}>
               task / project
             </Box>
             {Array.from({ length: daysInMonth }, (_, i) => (
@@ -5351,15 +5474,20 @@ function App() {
                 textAlign: 'center', 
                 fontSize: '0.75rem',
                 color: '#6b7d8f',
-                borderLeft: '1px solid #f1f5f8'
+                borderRight: i < daysInMonth - 1 ? '1px solid #e2e8f0' : 'none',
+                backgroundColor: '#f8fafb',
+                minWidth: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}>
                 {i + 1}
               </Box>
             ))}
-              </Box>
+          </Box>
 
           {/* Gantt Bars */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {sortedTasks.map((task: any, index: number) => {
               if (!task.dueDate) return null;
               const taskDate = new Date(task.dueDate);
@@ -5371,9 +5499,12 @@ function App() {
                 <Box key={`${task.id}-${index}`} sx={{ 
                   display: 'grid', 
                   gridTemplateColumns: '200px repeat(31, 1fr)', 
-                  gap: 1,
+                  gap: 0,
                   alignItems: 'center',
                   minHeight: 40,
+                  border: '1px solid #e2e8f0',
+                  borderTop: index === 0 ? '1px solid #e2e8f0' : 'none',
+                  borderRadius: index === 0 ? '0 0 4px 4px' : 'none',
                   '&:hover': { backgroundColor: '#f8fafb' }
                 }}>
                   {/* Task Info */}
@@ -5381,7 +5512,9 @@ function App() {
                     display: 'flex', 
                     alignItems: 'center', 
                     gap: 1,
-                    p: 1
+                    p: 1,
+                    borderRight: '1px solid #e2e8f0',
+                    backgroundColor: '#ffffff'
                   }}>
                     <Box 
                       sx={{ 
@@ -5464,31 +5597,39 @@ function App() {
                       <Box 
                         key={day} 
                         onClick={() => {
-                          // Determine if this is closer to start or end
-                          const startDistance = Math.abs(currentDate.getTime() - taskStartDate.getTime());
-                          const endDistance = Math.abs(currentDate.getTime() - taskDate.getTime());
-                          
-                          if (startDistance <= endDistance) {
-                            // Closer to start date
-                            handleGanttDateClick(task, true, currentDate);
+                          // Toggle the day - if it's currently in timeline, remove it; if not, add it
+                          if (isInTaskTimeline) {
+                            // Remove this day from the timeline
+                            handleGanttDayToggle(task, currentDate, false);
                           } else {
-                            // Closer to end date
-                            handleGanttDateClick(task, false, currentDate);
+                            // Add this day to the timeline
+                            handleGanttDayToggle(task, currentDate, true);
                           }
                         }}
                         sx={{ 
-                          height: 24,
-                          border: '1px solid #f1f5f8',
-                          borderRadius: 1,
+                          height: 40,
+                          borderRight: i < daysInMonth - 1 ? '1px solid #e2e8f0' : 'none',
                           backgroundColor: backgroundColor,
                           position: 'relative',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           cursor: 'pointer',
+                          minWidth: '32px',
+                          transition: 'all 0.2s ease',
                           '&:hover': {
+                            backgroundColor: isInTaskTimeline ? 
+                              '#fed7d7' : // Red when removing a day
+                              '#5a6c7d20', // Light blue when adding a day
                             borderColor: '#5a6c7d',
-                            boxShadow: '0 0 0 2px rgba(90,108,125,0.2)'
+                            boxShadow: '0 0 0 2px rgba(90,108,125,0.3)',
+                            transform: 'scale(1.05)',
+                            '& > div:last-child': {
+                              opacity: 1
+                            }
+                          },
+                          '&:active': {
+                            transform: 'scale(0.95)'
                           }
                         }}
                       >
@@ -5528,6 +5669,38 @@ function App() {
                             {task.status}
                 </Box>
                         )}
+                        
+                        {/* Hover indicator for clickable days */}
+                        <Box sx={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          opacity: 0,
+                          transition: 'opacity 0.2s ease',
+                          pointerEvents: 'none',
+                          zIndex: 2
+                        }}>
+                          {isInTaskTimeline ? (
+                            <Box sx={{
+                              color: '#e53e3e',
+                              fontSize: '0.875rem',
+                              fontWeight: 'bold',
+                              textShadow: '0 0 2px rgba(255,255,255,0.8)'
+                            }}>
+                              ✕
+                            </Box>
+                          ) : (
+                            <Box sx={{
+                              color: '#5a6c7d',
+                              fontSize: '0.875rem',
+                              fontWeight: 'bold',
+                              textShadow: '0 0 2px rgba(255,255,255,0.8)'
+                            }}>
+                              +
+                            </Box>
+                          )}
+                        </Box>
       </Box>
     );
                   })}
