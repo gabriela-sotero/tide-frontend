@@ -109,6 +109,7 @@ tipos:
    - Só sugira um bloco se o usuário explicitamente pedir um novo
    - Se não especificar, deixe suggestedBlock vazio (as tarefas vão para "Compromissos")
    - Use blocos existentes quando possível
+   - **COMANDO ESPECIAL "schedule"**: Se o usuário começar com "schedule", crie um bloco com o nome da matéria/disciplina e adicione a tarefa APENAS no schedule (não no kanban)
 
 Responda apenas com JSON válido no formato:
 {
@@ -145,6 +146,11 @@ Exemplos de entrada:
 - "criar projeto 'Marketing Digital'" → tarefa + bloco novo "Marketing Digital"
 - "no projeto 'Trabalho' preciso fazer relatório" → tarefa no bloco existente "Trabalho"
 
+**EXEMPLOS COM COMANDO "schedule":**
+- "schedule redes de computadores toda segunda 8 às 12" → bloco "Redes de Computadores" + tarefa recorrente APENAS no schedule
+- "schedule matemática toda terça 14h" → bloco "Matemática" + tarefa recorrente APENAS no schedule
+- "schedule física toda quarta 10 às 12" → bloco "Física" + tarefa recorrente APENAS no schedule
+
 **IMPORTANTE:**
 - Compromissos únicos com data/hora específica = "compromisso" (NÃO recorrente)
 - Tarefas que se repetem = "recorrente" (com recurringDays)
@@ -160,6 +166,14 @@ Exemplos de entrada:
 
 **COMPROMISSOS ÚNICOS SEMPRE = "compromisso"**
 **RECORRÊNCIAS SEMPRE = "recorrente"**
+
+**INSTRUÇÕES PARA COMANDO "schedule":**
+- Se o usuário começar com "schedule", extraia o nome da matéria/disciplina
+- Crie um bloco com o nome da matéria (capitalize a primeira letra de cada palavra)
+- A tarefa deve ser sempre "recorrente" (taskType: "recorrente")
+- A tarefa deve ir APENAS para o schedule (não para kanban nem gantt)
+- Use o nome da matéria como título da tarefa
+- Exemplo: "schedule redes de computadores toda segunda 8 às 12" → bloco: "Redes De Computadores", tarefa: "Redes de computadores"
 `;
 
 
