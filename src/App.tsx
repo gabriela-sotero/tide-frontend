@@ -19,6 +19,7 @@ import {
   Tooltip,
   CircularProgress
 } from '@mui/material';
+import Profile from './Profile';
 import { 
   Add as AddIcon,
   Search as SearchIcon,
@@ -419,10 +420,10 @@ function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedBlockForNewTask, setSelectedBlockForNewTask] = useState<string>('feature');
   const [backlogExpanded, setBacklogExpanded] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly' | 'weekly' | 'daily' | 'schedule'>('kanban');
+  const [currentPage, setCurrentPage] = useState<'yearly' | 'kanban' | 'monthly' | 'weekly' | 'daily' | 'schedule' | 'profile'>('kanban');
 
   // Clear expanded block when changing pages
-  const handlePageChange = (page: 'yearly' | 'kanban' | 'monthly' | 'weekly' | 'daily' | 'schedule') => {
+  const handlePageChange = (page: 'yearly' | 'kanban' | 'monthly' | 'weekly' | 'daily' | 'schedule' | 'profile') => {
     setCurrentPage(page);
     if (page !== 'kanban') {
       clearExpandedBlock();
@@ -2209,6 +2210,20 @@ function App() {
           }}
         >
           schedule
+        </Button>
+        <Button
+          variant={currentPage === 'profile' ? 'contained' : 'outlined'}
+          onClick={() => handlePageChange('profile')}
+          sx={{ 
+            backgroundColor: currentPage === 'profile' ? '#5a6c7d' : 'transparent',
+            color: currentPage === 'profile' ? '#ffffff' : '#4a5568',
+            borderColor: '#8fa3b3',
+            '&:hover': { 
+              backgroundColor: currentPage === 'profile' ? '#4a5568' : '#f1f5f8'
+            }
+          }}
+        >
+          profile
         </Button>
       </Box>
       </Box>
@@ -6846,6 +6861,8 @@ function App() {
           renderDailyView()
         ) : currentPage === 'schedule' ? (
           renderScheduleView()
+        ) : currentPage === 'profile' ? (
+          <Profile />
         ) : (
           <>
             {renderKanbanHeader()}
