@@ -1,46 +1,149 @@
-# Getting Started with Create React App
+# Tide Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Tide is an intelligent productivity application that combines task management with AI to create a personalized organization experience. The application allows you to create, organize, and manage tasks through different views (Kanban, Gantt, Schedule) with the help of artificial intelligence.
 
-## Available Scripts
+## 🚀 Features
 
-In the project directory, you can run:
+- **Intelligent Task Management**: Automatic task creation through natural language commands
+- **Multiple Views**:
+  - **Kanban**: Organization by status (Backlog, To-do, In Progress, Done)
+  - **Gantt**: Temporal visualization of projects and tasks
+  - **Schedule**: Calendar with appointments and recurring tasks
+- **Integrated AI**: Uses Google Gemini AI to interpret commands and create tasks automatically
+- **Drag & Drop**: Intuitive interface for reorganizing tasks
+- **Task Types**:
+  - **General**: Unique tasks
+  - **Appointment**: Events with specific date/time
+  - **Recurring**: Tasks that repeat periodically
+- **Blocks/Projects System**: Task organization by context or project
+- **Priorities**: Prioritization system (low, medium, high)
+
+## 🛠️ Technologies Used
+
+- **React 19** with TypeScript
+- **Material-UI (MUI)** for interface
+- **@dnd-kit** for drag & drop functionality
+- **Google Gemini AI** for natural language processing
+- **Axios** for HTTP requests
+- **date-fns** for date manipulation
+- **React Router** for navigation
+
+## 📋 Prerequisites
+
+- Node.js (version 16 or higher)
+- npm or yarn
+- Google Gemini AI API key
+
+## 🔧 Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd tide-frontend
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Configure environment variable:
+Create a `.env` file in the project root and add your Gemini API key:
+```env
+REACT_APP_GEMINI_API_KEY=your_api_key_here
+```
+
+4. Start the development server:
+```bash
+npm start
+```
+
+The application will be available at [http://localhost:3000](http://localhost:3000).
+
+## 📝 Available Scripts
 
 ### `npm start`
-
-Runs the app in the development mode.\
+Runs the app in development mode.\
 Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
-
 ### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Launches the test runner in interactive watch mode.
 
 ### `npm run build`
-
 Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+The app is optimized for the best performance.
 
 ### `npm run eject`
+**Note: This is a one-way operation!**
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+Removes the single build dependency from your project and copies all configuration files to your project.
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## 🤖 How to Use AI
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+The application allows you to create tasks through natural language commands. Examples:
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+### Basic Commands:
+- `"I need to do a report by Friday"` → Creates task with deadline
+- `"I'm doing data analysis"` → Marks task as in progress
+- `"I finished code review"` → Marks task as completed
 
-## Learn More
+### Appointments:
+- `"dentist appointment tomorrow at 3pm"` → Creates appointment with time
+- `"gastroenterologist on 05/09 at 2:20pm"` → Appointment with specific date
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### Recurring Tasks:
+- `"exercises every Tuesday at 12pm"` → Task that repeats weekly
+- `"piano lesson every Wednesday at 4pm"` → Recurring appointment
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### Schedule Command (for subjects):
+- `"schedule computer networks every Monday 8am to 12pm"` → Creates subject block
+- `"schedule mathematics every Tuesday at 2pm"` → Subject schedule
+
+### Projects:
+- `"create project 'Digital Marketing'"` → Creates new block/project
+- `"in the 'Work' project I need to do a report"` → Adds task to existing project
+
+## 🎯 Task Types
+
+1. **General**: Unique tasks without specific date
+2. **Appointment**: Unique events with defined date/time
+3. **Recurring**: Tasks that repeat at regular intervals
+
+## 📊 Views
+
+- **Kanban**: Organize tasks by status using drag & drop
+- **Gantt**: Visualize project timeline and tasks with deadlines
+- **Schedule**: Manage calendar with appointments and recurring tasks
+
+## 🔒 API Configuration
+
+To use the AI functionality, you need a Google Gemini API key:
+
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create a new API key
+3. Add the key to the `.env` file:
+```env
+REACT_APP_GEMINI_API_KEY=your_api_key_here
+```
+
+## 🚀 Deployment
+
+To deploy the application:
+
+```bash
+npm run build
+```
+
+The production files will be in the `build/` folder and can be served by any static web server.
+
+## 📄 License
+
+This project is under the license specified in the [LICENSE](LICENSE) file.
+
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to open issues and pull requests.
+
+## 📞 Support
+
+For questions or problems, open an issue in the repository.

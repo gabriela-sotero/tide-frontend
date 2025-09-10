@@ -52,6 +52,26 @@ import {
 import './App.css';
 import { createTasksFromAI, AITaskResponse } from './services/aiService';
 
+// Adicionar animação CSS para o indicador de hora atual
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes pulse {
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.2);
+      opacity: 0.7;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+`;
+document.head.appendChild(style);
+
 interface Task {
   id: string;
   title: string;
@@ -355,6 +375,24 @@ function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [openBlocksDialog, setOpenBlocksDialog] = useState(false);
+  const [openScheduleDialog, setOpenScheduleDialog] = useState(false);
+  const [newScheduleItem, setNewScheduleItem] = useState<{
+    block: string;
+    day: string;
+    time: string;
+  }>({
+    block: '',
+    day: '',
+    time: ''
+  });
+  const [newScheduleBlockName, setNewScheduleBlockName] = useState('');
+  const [editingScheduleItem, setEditingScheduleItem] = useState<{
+    blockId: string;
+    blockName: string;
+    day: string;
+    time: string;
+    originalTime: string;
+  } | null>(null);
   const [editingBlock, setEditingBlock] = useState<TaskType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   // Helper function to get today's date in local timezone
@@ -401,7 +439,6 @@ function App() {
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   const [editingColumn, setEditingColumn] = useState<{id: string, name: string} | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
-  const [newBlockName, setNewBlockName] = useState('');
   const [selectedBlockColor, setSelectedBlockColor] = useState('#5a6c7d');
   const [blockSchedule, setBlockSchedule] = useState<{
     monday: string[];
@@ -805,15 +842,15 @@ function App() {
       sunday: []
     });
     setSelectedBlockColor('#5a6c7d');
-    setNewBlockName('');
+    setNewScheduleBlockName('');
   };
 
   const handleAddBlock = () => {
-    if (!newBlockName.trim()) return;
+    if (!newScheduleBlockName.trim()) return;
     
     const newBlock: TaskType = {
       id: Date.now().toString(),
-      name: newBlockName,
+      name: newScheduleBlockName,
       color: selectedBlockColor,
       tasks: [],
       expanded: true,
@@ -825,7 +862,7 @@ function App() {
     };
     
     setTaskTypes(prev => [...prev, newBlock]);
-    setNewBlockName('');
+    setNewScheduleBlockName('');
     setSelectedBlockColor('#5a6c7d'); // Reset to default color
     setBlockSchedule({
       monday: [],
@@ -1195,6 +1232,10 @@ function App() {
     setChatInput('');
     setIsChatLoading(true);
 
+    // Verificar se é comando "schedule"
+    const isScheduleCommand = chatInput.toLowerCase().startsWith('schedule');
+    console.log('É comando schedule?', isScheduleCommand);
+
     try {
       console.log('Iniciando criação de tarefas com IA...');
       console.log('API Key:', process.env.REACT_APP_GEMINI_API_KEY ? 'Presente' : 'Ausente');
@@ -1219,15 +1260,41 @@ function App() {
       // Criar bloco sugerido APENAS se o usuário especificar um bloco novo
       let targetBlock = taskTypes.find(t => t.name === response.suggestedBlock);
       
-      // Se não especificou bloco ou o bloco não existe, usar "Compromissos"
-      if (!response.suggestedBlock || !targetBlock) {
-        targetBlock = taskTypes.find(t => t.name === 'Compromissos');
+      // Se é comando "schedule", criar bloco automaticamente
+      if (isScheduleCommand && response.suggestedBlock && !targetBlock) {
+        console.log('Criando bloco para comando schedule:', response.suggestedBlock);
+        const scheduleBlock: TaskType = {
+          id: Date.now().toString(),
+          name: response.suggestedBlock,
+          color: '#5a6c7d',
+          tasks: [],
+          expanded: true,
+          expandedByColumn: columns.reduce((acc, col) => ({
+            ...acc,
+            [col.id]: col.id === 'backlog' ? true : false
+          }), {}),
+          schedule: {
+            monday: [],
+            tuesday: [],
+            wednesday: [],
+            thursday: [],
+            friday: [],
+            saturday: [],
+            sunday: []
+          }
+        };
+        setTaskTypes(prev => [...prev, scheduleBlock]);
+        targetBlock = scheduleBlock;
+      }
+      // Se não especificou bloco ou o bloco não existe, usar "compromissos"
+      else if (!response.suggestedBlock || !targetBlock) {
+        targetBlock = taskTypes.find(t => t.name === 'compromissos');
         
-        // Se não existir bloco "Compromissos", criar um
+        // Se não existir bloco "compromissos", criar um
         if (!targetBlock) {
           const compromissosBlock: TaskType = {
             id: Date.now().toString(),
-            name: 'Compromissos',
+            name: 'compromissos',
             color: '#5a6c7d',
             tasks: [],
             expanded: true,
@@ -1826,6 +1893,118 @@ function App() {
     
     setScheduleMessage('Item removido do schedule e das visualizações com sucesso.');
     setTimeout(() => setScheduleMessage(''), 1500);
+  };
+
+  const handleAddScheduleItem = () => {
+    if (!newScheduleItem.block || !newScheduleItem.day || !newScheduleItem.time) return;
+
+    // Get the block name (either existing or new)
+    const blockName = newScheduleItem.block === '__NEW_BLOCK__' ? newScheduleBlockName : newScheduleItem.block;
+    const existingBlock = taskTypes.find(block => block.name === blockName);
+    
+    if (existingBlock) {
+      // If block exists, add to its schedule
+      setTaskTypes(prev => prev.map(block => {
+        if (block.id !== existingBlock.id) return block;
+        
+        const currentDayValues = block.schedule?.[newScheduleItem.day as keyof typeof block.schedule] || [];
+        
+        // Check if time already exists
+        if (currentDayValues.includes(newScheduleItem.time)) {
+          setScheduleMessage('Horário já existe neste dia');
+          setTimeout(() => setScheduleMessage(''), 3000);
+          return block;
+        }
+        
+        const updatedDayValues = [...currentDayValues, newScheduleItem.time];
+        const updatedSchedule = { 
+          ...block.schedule, 
+          [newScheduleItem.day]: updatedDayValues 
+        };
+        
+        return { ...block, schedule: updatedSchedule };
+      }));
+    } else {
+      // Create new block
+      const newBlock: TaskType = {
+        id: Date.now().toString(),
+        name: blockName,
+        color: '#5a6c7d',
+        tasks: [],
+        expanded: true,
+        expandedByColumn: columns.reduce((acc, col) => ({
+          ...acc,
+          [col.id]: col.id === 'backlog' ? true : false
+        }), {}),
+        schedule: {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: [],
+          sunday: []
+        }
+      };
+      
+      // Add the time to the new block's schedule
+      if (newBlock.schedule) {
+        (newBlock.schedule as any)[newScheduleItem.day] = [newScheduleItem.time];
+      }
+      
+      setTaskTypes(prev => [...prev, newBlock]);
+    }
+
+    // Reset form and close dialog
+    setNewScheduleItem({
+      block: '',
+      day: '',
+      time: ''
+    });
+    setNewScheduleBlockName('');
+    setOpenScheduleDialog(false);
+    setScheduleMessage('Horário adicionado com sucesso!');
+    setTimeout(() => setScheduleMessage(''), 3000);
+  };
+
+  const handleEditScheduleItem = (blockId: string, blockName: string, day: string, time: string) => {
+    setEditingScheduleItem({
+      blockId,
+      blockName,
+      day,
+      time,
+      originalTime: time
+    });
+  };
+
+  const handleUpdateScheduleItem = () => {
+    if (!editingScheduleItem) return;
+
+    setTaskTypes(prev => prev.map(block => {
+      if (block.id !== editingScheduleItem.blockId) return block;
+      
+      const currentDayValues = block.schedule?.[editingScheduleItem.day as keyof typeof block.schedule] || [];
+      
+      // Remove the original time and add the new time
+      const updatedDayValues = currentDayValues
+        .filter(t => t !== editingScheduleItem.originalTime)
+        .concat(editingScheduleItem.time);
+      
+      const updatedSchedule = { 
+        ...block.schedule, 
+        [editingScheduleItem.day]: updatedDayValues 
+      };
+      
+      return { ...block, schedule: updatedSchedule };
+    }));
+
+    setEditingScheduleItem(null);
+    setScheduleMessage('Horário atualizado com sucesso!');
+    setTimeout(() => setScheduleMessage(''), 3000);
+  };
+
+  const handleCancelEditScheduleItem = () => {
+    setEditingScheduleItem(null);
   };
 
   // Function to clear the expanded block and restore previous state
@@ -3859,7 +4038,7 @@ function App() {
                               sunday: block.schedule?.sunday || []
                             });
                             setSelectedBlockColor(block.color);
-                            setNewBlockName(block.name);
+                            setNewScheduleBlockName(block.name);
                           }}
                           sx={{ 
                             color: '#5a6c7d',
@@ -3898,8 +4077,8 @@ function App() {
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
             <TextField
               label={editingBlock ? "nome do block" : "block name"}
-              value={editingBlock ? editingBlock.name : newBlockName}
-              onChange={(e) => editingBlock ? setEditingBlock({ ...editingBlock, name: e.target.value }) : setNewBlockName(e.target.value)}
+              value={editingBlock ? editingBlock.name : newScheduleBlockName}
+              onChange={(e) => editingBlock ? setEditingBlock({ ...editingBlock, name: e.target.value }) : setNewScheduleBlockName(e.target.value)}
               placeholder={editingBlock ? "nome do block..." : "enter block name..."}
               sx={{
                 flex: 1,
@@ -3926,7 +4105,7 @@ function App() {
             <Button
               variant="contained"
               onClick={editingBlock ? handleSaveBlock : handleAddBlock}
-              disabled={editingBlock ? !editingBlock.name?.trim() : !newBlockName?.trim()}
+              disabled={editingBlock ? !editingBlock.name?.trim() : !newScheduleBlockName?.trim()}
               sx={{ 
                 backgroundColor: '#5a6c7d',
                 color: '#ffffff',
@@ -3951,7 +4130,7 @@ function App() {
                     sunday: []
                   });
                   setSelectedBlockColor('#5a6c7d');
-                  setNewBlockName('');
+                  setNewScheduleBlockName('');
                 }}
                 sx={{ 
                   borderColor: '#8fa3b3',
@@ -4203,6 +4382,287 @@ function App() {
           </Button>
                 </Box>
                 </Box>
+    </Dialog>
+  );
+
+  const renderScheduleDialog = () => (
+    <Dialog open={openScheduleDialog} onClose={() => setOpenScheduleDialog(false)} maxWidth="sm" fullWidth>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
+          adicionar horário manualmente
+        </Typography>
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+
+          {/* Block Selection */}
+          <FormControl fullWidth>
+            <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>
+              block
+            </InputLabel>
+            <Select
+              value={newScheduleItem.block || ''}
+              onChange={(e) => setNewScheduleItem(prev => ({ ...prev, block: e.target.value }))}
+              sx={{
+                '& .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#e2e8f0'
+                },
+                '&:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#5a6c7d'
+                },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#5a6c7d'
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
+                }
+              }}
+            >
+              {taskTypes.map((block) => (
+                <MenuItem key={block.id} value={block.name}>
+                  {block.name}
+                </MenuItem>
+              ))}
+              <MenuItem value="__NEW_BLOCK__">+ add new block</MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* New Block Name Input (only shown when "add new block" is selected) */}
+          {newScheduleItem.block === '__NEW_BLOCK__' && (
+            <TextField
+              label="nome do novo block"
+              value={newScheduleBlockName}
+              onChange={(e) => setNewScheduleBlockName(e.target.value)}
+              placeholder="digite o nome do novo block"
+              fullWidth
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: '#e2e8f0'
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#5a6c7d'
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#5a6c7d'
+                  }
+                },
+                '& .MuiInputLabel-root': {
+                  color: '#6b7d8f'
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
+                }
+              }}
+            />
+          )}
+
+          {/* Day Selection */}
+          <FormControl fullWidth>
+            <InputLabel sx={{ color: '#6b7d8f', backgroundColor: '#ffffff', px: 0.5 }}>
+              dia da semana
+            </InputLabel>
+            <Select
+              value={newScheduleItem.day || ''}
+              onChange={(e) => setNewScheduleItem(prev => ({ ...prev, day: e.target.value }))}
+              sx={{
+                '& .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#e2e8f0'
+                },
+                '&:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#5a6c7d'
+                },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                  borderColor: '#5a6c7d'
+                },
+                '& .MuiInputBase-input': {
+                  color: '#4a5568'
+                }
+              }}
+            >
+              <MenuItem value="monday">segunda-feira</MenuItem>
+              <MenuItem value="tuesday">terça-feira</MenuItem>
+              <MenuItem value="wednesday">quarta-feira</MenuItem>
+              <MenuItem value="thursday">quinta-feira</MenuItem>
+              <MenuItem value="friday">sexta-feira</MenuItem>
+              <MenuItem value="saturday">sábado</MenuItem>
+              <MenuItem value="sunday">domingo</MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* Time Input */}
+          <TextField
+            label="horário (ex: 8:00–12:00)"
+            value={newScheduleItem.time || ''}
+            onChange={(e) => setNewScheduleItem(prev => ({ ...prev, time: e.target.value }))}
+            placeholder="8:00–12:00"
+            fullWidth
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': {
+                  borderColor: '#e2e8f0'
+                },
+                '&:hover fieldset': {
+                  borderColor: '#5a6c7d'
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#5a6c7d'
+                }
+              },
+              '& .MuiInputLabel-root': {
+                color: '#6b7d8f'
+              },
+              '& .MuiInputBase-input': {
+                color: '#4a5568'
+              }
+            }}
+          />
+        </Box>
+
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
+          <Button 
+            onClick={() => setOpenScheduleDialog(false)} 
+            sx={{ color: '#6b7d8f' }}
+          >
+            cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAddScheduleItem}
+            disabled={!newScheduleItem.block || !newScheduleItem.day || !newScheduleItem.time || (newScheduleItem.block === '__NEW_BLOCK__' && !newScheduleBlockName.trim())}
+            sx={{ 
+              backgroundColor: '#5a6c7d',
+              '&:hover': { backgroundColor: '#4a5568' },
+              '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
+            }}
+          >
+            adicionar
+          </Button>
+        </Box>
+      </Box>
+    </Dialog>
+  );
+
+  const renderEditScheduleDialog = () => (
+    <Dialog open={!!editingScheduleItem} onClose={handleCancelEditScheduleItem} maxWidth="sm" fullWidth>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h6" sx={{ color: '#4a5568', mb: 3, fontWeight: 600 }}>
+          editar horário
+        </Typography>
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          {/* Block Name (Read-only) */}
+          <TextField
+            label="block"
+            value={editingScheduleItem?.blockName || ''}
+            fullWidth
+            disabled
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': {
+                  borderColor: '#e2e8f0'
+                }
+              },
+              '& .MuiInputLabel-root': {
+                color: '#6b7d8f'
+              },
+              '& .MuiInputBase-input': {
+                color: '#4a5568'
+              }
+            }}
+          />
+
+          {/* Day (Read-only) */}
+          <TextField
+            label="dia"
+            value={editingScheduleItem?.day === 'monday' ? 'segunda' :
+                  editingScheduleItem?.day === 'tuesday' ? 'terça' :
+                  editingScheduleItem?.day === 'wednesday' ? 'quarta' :
+                  editingScheduleItem?.day === 'thursday' ? 'quinta' :
+                  editingScheduleItem?.day === 'friday' ? 'sexta' :
+                  editingScheduleItem?.day === 'saturday' ? 'sábado' :
+                  editingScheduleItem?.day === 'sunday' ? 'domingo' : ''}
+            fullWidth
+            disabled
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': {
+                  borderColor: '#e2e8f0'
+                }
+              },
+              '& .MuiInputLabel-root': {
+                color: '#6b7d8f'
+              },
+              '& .MuiInputBase-input': {
+                color: '#4a5568'
+              }
+            }}
+          />
+
+          {/* Time Input (Editable) */}
+          <TextField
+            label="horário (ex: 08:00, 14:30, 08:00–10:00)"
+            value={editingScheduleItem?.time || ''}
+            onChange={(e) => setEditingScheduleItem(prev => prev ? { ...prev, time: e.target.value } : null)}
+            fullWidth
+            placeholder="ex: 08:00, 14:30, 08:00–10:00"
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': {
+                  borderColor: '#e2e8f0'
+                },
+                '&:hover fieldset': {
+                  borderColor: '#5a6c7d'
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#5a6c7d'
+                }
+              },
+              '& .MuiInputLabel-root': {
+                color: '#6b7d8f'
+              },
+              '& .MuiInputBase-input': {
+                color: '#4a5568'
+              }
+            }}
+          />
+
+          {scheduleMessage && (
+            <Typography variant="body2" sx={{ 
+              color: scheduleMessage.includes('sucesso') ? '#38a169' : '#e53e3e',
+              textAlign: 'center',
+              mt: 1
+            }}>
+              {scheduleMessage}
+            </Typography>
+          )}
+        </Box>
+
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 4 }}>
+          <Button
+            variant="outlined"
+            onClick={handleCancelEditScheduleItem}
+            sx={{ 
+              borderColor: '#8fa3b3',
+              color: '#6b7d8f',
+              '&:hover': { borderColor: '#5a6c7d', backgroundColor: '#f1f5f8' }
+            }}
+          >
+            cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleUpdateScheduleItem}
+            disabled={!editingScheduleItem?.time?.trim()}
+            sx={{ 
+              backgroundColor: '#5a6c7d',
+              '&:hover': { backgroundColor: '#4a5568' },
+              '&:disabled': { backgroundColor: '#cbd5e0', color: '#718096' }
+            }}
+          >
+            atualizar
+          </Button>
+        </Box>
+      </Box>
     </Dialog>
   );
 
@@ -5348,13 +5808,13 @@ function App() {
     const firstDayOfMonth = new Date(displayYear, displayMonth, 1).getDay();
     
     return (
-      <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
+      <Box sx={{ p: 3, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)', maxWidth: '100%', overflowX: 'auto' }}>
         {/* Month Navigation */}
         <Box sx={{ 
                       display: 'flex', 
           justifyContent: 'space-between', 
                       alignItems: 'center', 
-          mb: 4 
+          mb: 3 
         }}>
           <IconButton
             onClick={() => {
@@ -5428,7 +5888,9 @@ function App() {
           borderRadius: 2, 
           p: 3, 
           boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          mb: 4
+          mb: 4,
+          overflowX: 'auto',
+          maxWidth: '100%'
         }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography variant="h6" sx={{ 
@@ -5452,34 +5914,38 @@ function App() {
           {/* Timeline Header */}
           <Box sx={{ 
             display: 'grid', 
-            gridTemplateColumns: '200px repeat(31, 1fr)', 
+            gridTemplateColumns: '250px repeat(31, 32px)', 
             gap: 0, 
-            mb: 2,
+            mb: 0,
             borderBottom: '2px solid #e2e8f0',
             border: '1px solid #e2e8f0',
-            borderRadius: 1
+            borderRadius: 1,
+            minWidth: 'max-content'
           }}>
             <Box sx={{ 
-              p: 1, 
+              p: 1.5, 
               fontWeight: 600, 
               color: '#4a5568',
               borderRight: '1px solid #e2e8f0',
-              backgroundColor: '#f8fafb'
+              backgroundColor: '#f8fafb',
+              fontSize: '0.875rem'
             }}>
               task / project
             </Box>
             {Array.from({ length: daysInMonth }, (_, i) => (
               <Box key={i + 1} sx={{ 
-                p: 1, 
                 textAlign: 'center', 
-                fontSize: '0.75rem',
+                fontSize: '0.7rem',
                 color: '#6b7d8f',
                 borderRight: i < daysInMonth - 1 ? '1px solid #e2e8f0' : 'none',
                 backgroundColor: '#f8fafb',
-                minWidth: '32px',
+                width: '32px',
+                height: '32px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                fontWeight: 500,
+                boxSizing: 'border-box'
               }}>
                 {i + 1}
               </Box>
@@ -5498,21 +5964,23 @@ function App() {
               return (
                 <Box key={`${task.id}-${index}`} sx={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '200px repeat(31, 1fr)', 
+                  gridTemplateColumns: '250px repeat(31, 32px)', 
                   gap: 0,
                   alignItems: 'center',
-                  minHeight: 40,
+                  minHeight: 32,
                   border: '1px solid #e2e8f0',
                   borderTop: index === 0 ? '1px solid #e2e8f0' : 'none',
                   borderRadius: index === 0 ? '0 0 4px 4px' : 'none',
-                  '&:hover': { backgroundColor: '#f8fafb' }
+                  '&:hover': { backgroundColor: '#f8fafb' },
+                  minWidth: 'max-content',
+                  boxSizing: 'border-box'
                 }}>
                   {/* Task Info */}
                   <Box sx={{ 
                     display: 'flex', 
                     alignItems: 'center', 
                     gap: 1,
-                    p: 1,
+                    p: 1.5,
                     borderRight: '1px solid #e2e8f0',
                     backgroundColor: '#ffffff'
                   }}>
@@ -5607,7 +6075,8 @@ function App() {
                           }
                         }}
                         sx={{ 
-                          height: 40,
+                          height: '32px',
+                          width: '32px',
                           borderRight: i < daysInMonth - 1 ? '1px solid #e2e8f0' : 'none',
                           backgroundColor: backgroundColor,
                           position: 'relative',
@@ -5615,8 +6084,8 @@ function App() {
                           alignItems: 'center',
                           justifyContent: 'center',
                           cursor: 'pointer',
-                          minWidth: '32px',
                           transition: 'all 0.2s ease',
+                          boxSizing: 'border-box',
                           '&:hover': {
                             backgroundColor: isInTaskTimeline ? 
                               '#fed7d7' : // Red when removing a day
@@ -5726,7 +6195,8 @@ function App() {
           backgroundColor: '#ffffff', 
           borderRadius: 2, 
           p: 3, 
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)' 
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          overflowX: 'auto'
         }}>
           <Typography variant="h6" sx={{ 
             color: '#4a5568', 
@@ -5741,7 +6211,8 @@ function App() {
             display: 'grid', 
             gridTemplateColumns: 'repeat(7, 1fr)', 
             gap: 1, 
-            mb: 1 
+            mb: 1,
+            minWidth: 'max-content' 
           }}>
             {['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map(day => (
               <Box key={day} sx={{ 
@@ -5839,7 +6310,7 @@ function App() {
 
   const renderScheduleView = () => {
     // Gerar dados do schedule baseado nos blocks
-    const scheduleData: Record<string, Array<{ time: string; subject: string; color: string }>> = {
+    const scheduleData: Record<string, Array<{ time: string; subject: string; color: string; startTime: string; endTime?: string; duration?: number }>> = {
       monday: [],
       tuesday: [],
       wednesday: [],
@@ -5847,6 +6318,39 @@ function App() {
       friday: [],
       saturday: [],
       sunday: []
+    };
+
+    // Função para calcular duração e horários
+    const parseTimeSlot = (timeString: string) => {
+      const hasRange = timeString.includes('–');
+      if (hasRange) {
+        const [start, end] = timeString.split('–').map(t => t.trim());
+        const startMinutes = timeToMinutes(start);
+        const endMinutes = timeToMinutes(end);
+        return {
+          startTime: start,
+          endTime: end,
+          duration: endMinutes - startMinutes
+        };
+      } else {
+        return {
+          startTime: timeString,
+          endTime: undefined,
+          duration: 60 // Default 1 hour for single time entries
+        };
+      }
+    };
+
+    // Função para converter tempo em minutos
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      return hours * 60 + (minutes || 0);
+    };
+
+    // Função para obter cor uniforme para todos os blocks
+    const getTimeBasedColor = (time: string, baseColor: string) => {
+      // Usar sempre a mesma cor para todos os blocks
+      return '#5a6c7d';
     };
 
     // Preencher schedule com dados dos blocks
@@ -5858,10 +6362,14 @@ function App() {
           const daySchedule = schedule[day];
           if (daySchedule && daySchedule.length > 0) {
             daySchedule.forEach(time => {
+              const timeInfo = parseTimeSlot(time);
               scheduleData[day].push({
                 time,
                 subject: block.name,
-                color: block.color
+                color: getTimeBasedColor(timeInfo.startTime, block.color),
+                startTime: timeInfo.startTime,
+                endTime: timeInfo.endTime,
+                duration: timeInfo.duration
               });
             });
           }
@@ -5872,14 +6380,27 @@ function App() {
     // Ordenar horários por cada dia
     Object.keys(scheduleData).forEach(day => {
       scheduleData[day].sort((a, b) => {
-        const timeA = a.time.split('–')[0].trim();
-        const timeB = b.time.split('–')[0].trim();
-        return timeA.localeCompare(timeB);
+        return a.startTime.localeCompare(b.startTime);
       });
     });
 
     const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     const dayLabels = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+
+    // Gerar timeline de horas (8h às 22h)
+    const generateTimeSlots = () => {
+      const slots = [];
+      for (let hour = 8; hour <= 22; hour++) {
+        slots.push({
+          time: `${hour.toString().padStart(2, '0')}:00`,
+          label: `${hour}h`,
+          isCurrentHour: new Date().getHours() === hour
+        });
+      }
+      return slots;
+    };
+
+    const timeSlots = generateTimeSlots();
 
     return (
       <Box sx={{ p: 4, backgroundColor: '#f8fafb', minHeight: 'calc(100vh - 80px)' }}>
@@ -5888,207 +6409,277 @@ function App() {
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center', 
-          mb: 4 
+          mb: 3 
         }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-            <Typography variant="h4" sx={{ 
-              color: '#4a5568', 
-              fontWeight: 600
-            }}>
-              Grade Semanal - Horários das Aulas
-            </Typography>
-            
-            <Typography variant="body2" sx={{ 
-              color: '#6b7d8f',
-              fontStyle: 'italic'
-            }}>
-              Visão semanal das matérias e horários
-            </Typography>
-            <Typography variant="body2" sx={{ 
-              color: '#5a6c7d',
-              fontSize: '0.875rem',
-              mt: 1
-            }}>
-              💡 Clique em uma disciplina para expandir suas atividades no kanban
-            </Typography>
-          </Box>
+          <Typography variant="h5" sx={{ 
+            color: '#374151', 
+            fontWeight: 600,
+            fontSize: '1.5rem'
+          }}>
+            schedule
+          </Typography>
+          
+          <Button
+            variant="outlined"
+            onClick={() => setOpenScheduleDialog(true)}
+            sx={{ 
+              borderColor: '#d1d5db',
+              color: '#6b7280',
+              '&:hover': { 
+                borderColor: '#9ca3af',
+                backgroundColor: '#f9fafb'
+              },
+              textTransform: 'none',
+              fontWeight: 500,
+              px: 2,
+              py: 1,
+              fontSize: '0.875rem'
+            }}
+          >
+            + adicionar
+          </Button>
         </Box>
         
-        {/* Weekly Schedule Grid */}
+        {/* Timeline Header */}
         <Box sx={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(7, 1fr)', 
-          gap: 2,
-          mb: 4
+          gridTemplateColumns: '80px repeat(7, 1fr)', 
+          gap: 1,
+          mb: 1
         }}>
-          {dayNames.map((dayName, index) => {
-            const dayClasses = scheduleData[dayName as keyof typeof scheduleData] || [];
-            const dayLabel = dayLabels[index];
-            
-            return (
-              <Box
-                key={dayName}
-                sx={{
-                  backgroundColor: '#ffffff',
-                  borderRadius: 2,
-                  p: 2,
-                  border: '1px solid #e2e8f0',
-                  minHeight: 300,
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                }}
-              >
-                {/* Day Header */}
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'center', 
-                  alignItems: 'center',
-                  mb: 2,
-                  pb: 1,
-                  borderBottom: '1px solid #e2e8f0'
-                }}>
-                  <Typography variant="h6" sx={{ 
-                    color: '#4a5568', 
-                    fontWeight: 600,
-                    textTransform: 'capitalize'
-                  }}>
-                    {dayLabel}
-                  </Typography>
-                </Box>
-                
-                {/* Classes for this day */}
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {dayClasses.length === 0 ? (
-                    <Typography variant="body2" sx={{ 
-                      color: '#8fa3b3', 
-                      fontStyle: 'italic',
-                      textAlign: 'center',
-                      mt: 2
-                    }}>
-                      Sem aulas
-                    </Typography>
-                  ) : (
-                    dayClasses.map((classInfo, classIndex) => {
-                      // Find the block that corresponds to this subject
-                      const block = taskTypes.find(b => b.name === classInfo.subject);
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            p: 1
+          }}>
+            <Typography variant="body2" sx={{ 
+              color: '#9ca3af', 
+              fontWeight: 500,
+              fontSize: '0.7rem'
+            }}>
+              hora
+            </Typography>
+          </Box>
+          {dayLabels.map((dayLabel, dayIndex) => (
+            <Box key={dayIndex} sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              p: 1
+            }}>
+              <Typography variant="body2" sx={{ 
+                color: '#6b7280', 
+                fontWeight: 500,
+                fontSize: '0.7rem'
+              }}>
+                {dayLabel}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+
+                 {/* Schedule Grid with Timeline */}
+         <Box sx={{ 
+           display: 'grid',
+           gridTemplateColumns: '80px repeat(7, 1fr)',
+           gridAutoRows: '56px',
+           gap: 1,
+           mb: 4
+         }}>
+           {/* Time Labels */}
+           {timeSlots.map((timeSlot, timeIndex) => (
+             <Box key={`time-${timeSlot.time}`} sx={{ 
+               gridColumn: '1',
+               gridRow: `${timeIndex + 1}`,
+               display: 'flex', 
+               alignItems: 'center', 
+               justifyContent: 'center',
+               p: 1
+             }}>
+               <Typography variant="body2" sx={{ 
+                 color: timeSlot.isCurrentHour ? '#3b82f6' : '#9ca3af', 
+                 fontWeight: timeSlot.isCurrentHour ? 600 : 400,
+                 fontSize: '0.7rem'
+               }}>
+                 {timeSlot.label}
+               </Typography>
+             </Box>
+           ))}
+
+           {/* Day Columns */}
+           {dayNames.map((dayName, dayIndex) => {
+             const dayClasses = scheduleData[dayName as keyof typeof scheduleData] || [];
+             
+             return timeSlots.map((timeSlot, timeIndex) => {
+               // Encontrar a aula que começa nesta hora específica
+               const currentTimeClass = dayClasses.find(classInfo => {
+                 const classStartTime = classInfo.startTime;
+                 const classHour = parseInt(classStartTime.split(':')[0]);
+                 const slotHour = parseInt(timeSlot.time.split(':')[0]);
+                 return classHour === slotHour;
+               });
+
+               // Calcular quantas linhas o bloco deve ocupar
+               const getBlockSpan = (classInfo: any) => {
+                 if (!classInfo.endTime) return 1; // Se não tem horário de fim, ocupa 1 linha
+                 
+                 const startHour = parseInt(classInfo.startTime.split(':')[0]);
+                 const endHour = parseInt(classInfo.endTime.split(':')[0]);
+                 return Math.max(1, endHour - startHour);
+               };
+
+               const blockSpan = currentTimeClass ? getBlockSpan(currentTimeClass) : 1;
+
+               return (
+                 <Box key={`${dayName}-${timeIndex}`} sx={{ 
+                   gridColumn: `${dayIndex + 2}`,
+                   gridRow: `${timeIndex + 1}`,
+                   p: 0.5,
+                   display: 'flex',
+                   alignItems: 'center',
+                   justifyContent: 'center',
+                   position: 'relative'
+                 }}>
+                   {currentTimeClass && (
+                     <Box
+                       onClick={() => {
+                         const block = taskTypes.find(b => b.name === currentTimeClass.subject);
+                         if (block) {
+                           handleEditScheduleItem(block.id, block.name, dayName, currentTimeClass.time);
+                         }
+                       }}
+                       sx={{
+                         backgroundColor: currentTimeClass.color,
+                         color: '#ffffff',
+                         p: 0.5,
+                         borderRadius: 0.5,
+                         cursor: 'pointer',
+                         fontSize: '0.7rem',
+                         width: '100%',
+                         height: `${blockSpan * 56 - 4}px`, // Altura baseada no span
+                         display: 'flex',
+                         flexDirection: 'column',
+                         justifyContent: 'center',
+                         alignItems: 'center',
+                         position: 'absolute',
+                         top: 2,
+                         left: 2,
+                         right: 2,
+                         zIndex: 1,
+                         '&:hover': {
+                           opacity: 0.8
+                         },
+                         transition: 'opacity 0.2s ease'
+                       }}
+                     >
+                       <Typography variant="body2" sx={{ 
+                         fontWeight: 500,
+                         fontSize: '0.65rem',
+                         lineHeight: 1.1,
+                         textAlign: 'center',
+                         mb: 0.5
+                       }}>
+                         {currentTimeClass.subject}
+                       </Typography>
+                       
+                       {/* Horários separados */}
+                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
+                         <Typography variant="body2" sx={{ 
+                           fontWeight: 400,
+                           fontSize: '0.6rem',
+                           opacity: 0.9,
+                           textAlign: 'center'
+                         }}>
+                           início: {currentTimeClass.startTime}
+                         </Typography>
+                         {currentTimeClass.endTime && (
+                           <Typography variant="body2" sx={{ 
+                             fontWeight: 400,
+                             fontSize: '0.6rem',
+                             opacity: 0.9,
+                             textAlign: 'center'
+                           }}>
+                             fim: {currentTimeClass.endTime}
+                           </Typography>
+                         )}
+                       </Box>
                       
-                      return (
-                        <Box
-                          key={`${dayName}-${classIndex}`}
-                          onClick={() => {
-                            if (block) {
-                              expandBlockFromSchedule(block.id);
-                            }
-                          }}
-                          sx={{
-                            backgroundColor: classInfo.color,
-                            color: '#ffffff',
-                            p: 1.5,
-                            borderRadius: 1,
-                            cursor: 'pointer',
-                            fontSize: '0.875rem',
-                            position: 'relative',
-                            '&:hover': {
-                              opacity: 0.9,
-                              transform: 'translateY(-1px)',
-                              transition: 'all 0.2s',
-                              boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-                            }
-                          }}
-                        >
-                        {/* Delete schedule item */}
-                        {block && (
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteScheduleItem(
-                                block.id,
-                                dayName as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday',
-                                classInfo.time
-                              );
-                            }}
-                            sx={{
-                              position: 'absolute',
-                              top: 4,
-                              right: 4,
-                              color: '#ffffff',
-                              '&:hover': { color: '#f1f5f8' }
-                            }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                        <Typography variant="body2" sx={{ 
-                          fontWeight: 600,
-                          mb: 0.5,
-                          fontSize: '0.75rem'
-                        }}>
-                          {classInfo.time}
-                        </Typography>
-                        <Typography variant="body2" sx={{ 
-                          fontWeight: 500,
-                          fontSize: '0.8rem',
-                          lineHeight: 1.2
-                        }}>
-                          {classInfo.subject}
-                        </Typography>
-                        
-                        {/* Indicator if block is expanded in kanban */}
-                        {block && expandedBlockFromSchedule === block.id && (
-                          <Box sx={{ 
-                            position: 'absolute', 
-                            top: 4, 
-                            right: 4,
-                            width: 8,
-                            height: 8,
-                            backgroundColor: '#ffffff',
-                            borderRadius: '50%',
-                            border: '1px solid rgba(255,255,255,0.3)'
-                          }} />
-                        )}
-                      </Box>
-                      );
-                    })
+                      {/* Delete button */}
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const block = taskTypes.find(b => b.name === currentTimeClass.subject);
+                          if (block) {
+                            handleDeleteScheduleItem(
+                              block.id,
+                              dayName as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday',
+                              currentTimeClass.time
+                            );
+                          }
+                        }}
+                        sx={{
+                          position: 'absolute',
+                          top: 1,
+                          right: 1,
+                          color: '#ffffff',
+                          backgroundColor: 'rgba(0,0,0,0.3)',
+                          '&:hover': {
+                            backgroundColor: 'rgba(0,0,0,0.5)'
+                          },
+                          width: 14,
+                          height: 14
+                        }}
+                      >
+                        <CloseIcon sx={{ fontSize: 8 }} />
+                      </IconButton>
+                    </Box>
                   )}
                 </Box>
-              </Box>
-            );
+              );
+            });
           })}
         </Box>
         
         {/* Schedule Summary */}
         <Box sx={{ 
-          backgroundColor: '#ffffff', 
-          borderRadius: 2, 
-          p: 3,
-          border: '1px solid #e2e8f0'
+          p: 2
         }}>
-          <Typography variant="h6" sx={{ 
-            color: '#4a5568', 
-            mb: 2, 
-            fontWeight: 600 
+          <Typography variant="body2" sx={{ 
+            color: '#9ca3af', 
+            mb: 1, 
+            fontWeight: 500,
+            fontSize: '0.75rem'
           }}>
-            Resumo da Grade
+            matérias
           </Typography>
-          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             {taskTypes
               .filter(block => hasScheduleTimes(block))
               .map(block => (
-                <Box key={block.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box key={block.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <Box sx={{ 
-                    width: 12, 
-                    height: 12, 
+                    width: 8, 
+                    height: 8, 
                     backgroundColor: block.color, 
                     borderRadius: '50%' 
                   }} />
-                  <Typography variant="body2" sx={{ color: '#4a5568' }}>
+                  <Typography variant="body2" sx={{ 
+                    color: '#6b7280',
+                    fontSize: '0.7rem'
+                  }}>
                     {block.name}
                   </Typography>
                 </Box>
               ))}
             {taskTypes.filter(block => hasScheduleTimes(block)).length === 0 && (
-              <Typography variant="body2" sx={{ color: '#8fa3b3', fontStyle: 'italic' }}>
-                Nenhuma matéria com horários cadastrados
+              <Typography variant="body2" sx={{ 
+                color: '#9ca3af', 
+                fontStyle: 'italic',
+                fontSize: '0.7rem'
+              }}>
+                nenhuma matéria cadastrada
               </Typography>
             )}
           </Box>
@@ -6263,6 +6854,8 @@ function App() {
         )}
       {renderTaskDialog()}
       {renderBlocksDialog()}
+      {renderScheduleDialog()}
+      {renderEditScheduleDialog()}
       {renderColumnsDialog()}
       {renderTasksDialog()}
       {renderSearchResults()}
