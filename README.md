@@ -1,4 +1,4 @@
-# Tide Frontend
+# Planner
 
 Tide is an intelligent productivity application that combines task management with AI to create a personalized organization experience. The application allows you to create, organize, and manage tasks through different views (Kanban, Gantt, Schedule) with the help of artificial intelligence.
 
